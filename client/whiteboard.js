@@ -1007,15 +1007,24 @@ class Connection {
 		}
 	}
 	/**
-	 * @param {Blob} imageData
+	 * @param {Blob} imageDataBlob
 	 * @param {number} index The number of times this function has been called before. Used to space out images.
 	 */
-	createImage(imageData, index) {
+	async createImage(imageDataBlob, index) {
+		// Load image from blob
+		var image = await createImageBitmap(imageDataBlob);
+		// Resize image
+		var newSize = aspect_scale({ x: image.width, y: image.height }, { x: 1000, y: 1000 }, false);
+		var canvas = new OffscreenCanvas(newSize.x, newSize.y);
+		canvas.getContext('2d')?.drawImage(image, 0, 0, newSize.x, newSize.y);
+		// Convert back to blob
+		imageDataBlob = await canvas.convertToBlob({ type: "image/webp", quality: 0.75 });
+		// Create image
 		this.createObject(AbstractSceneObject.generateObjectID(), this.whiteboard.selectedLayer, "image", {
 			x: (50 - this.whiteboard.viewport.x) / this.whiteboard.viewport.zoom,
 			y: (50 - (this.whiteboard.viewport.y + (index * -50))) / this.whiteboard.viewport.zoom,
 			scale: 1 / this.whiteboard.viewport.zoom
-		}, imageData)
+		}, imageDataBlob)
 	}
 	/**
 	 * @param {number} objectID

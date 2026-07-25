@@ -133,6 +133,23 @@ function rectangleIntersectsLine(rect, line) {
 	return _rectangle_intersects_line(rect.x, rect.y, rect.w, rect.h, line.start.x, line.start.y, line.end.x, line.end.y)
 }
 
+/**
+ * @param {Point} currentSize
+ * @param {Point} maxSize
+ * @param {boolean} canIncreaseSize
+ * @returns {Point}
+ */
+function aspect_scale(currentSize, maxSize, canIncreaseSize) {
+	var sx = maxSize.x / currentSize.x
+	var sy = maxSize.y / currentSize.y
+	var scale = Math.min(sx, sy)
+	if (scale >= 1 && !canIncreaseSize) return currentSize
+	return {
+		x: currentSize.x * scale,
+		y: currentSize.y * scale,
+	}
+}
+
 var mainCanvas = document.createElement("canvas")
 document.querySelector(".mainContainer")?.appendChild(mainCanvas)
 mainCanvas.id = "mainCanvas"
