@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Drawing</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+		<style>
+html {
+	height: 100%;
+}
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	font-family: sans-serif;
+}
+.mainContainer {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
+svg#theSVG {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+path {
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+textarea {
+	width: max-content;
+	height: max-content;
+	position: absolute;
+}
+textarea.unverified {
+	opacity: 0.5;
+}
+textarea.another-layer {
+	opacity: 0.25;
+	pointer-events: none;
+}
+textarea.unverified.another-layer {
+	opacity: 0.125;
+}
+.focus-shadow {
+	box-shadow: 0em 0.3em 1em 0em blue;
+	color: blue;
+}
+
+.menu {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	margin: 1em;
+	border-radius: 1em;
+	overflow: hidden;
+	background: black;
+	color: white;
+	padding: 0.5em;
+	transition: opacity 0.25s ease-in-out, transform 0.25s ease-in-out;
+	opacity: 1;
+	transform: scale(1);
+}
+.menu-option {
+	padding: 0.5em;
+	transition: filter 0.3s;
+	filter: none;
+	display: inline-block;
+	& svg {
+		width: 2em;
+		height: 2em;
+		pointer-events: none;
+	}
+	&.menu-option-selected {
+		filter: invert();
+	}
+}
+.menu#drawmode.hidden, .menu.selection-window:not(.active), .modal .menu.hidden {
+	opacity: 0;
+	transform: scale(0.9);
+	pointer-events: none;
+}
+.small-menu-option {
+	display: inline-block;
+	padding: 0.25em;
+	vertical-align: middle;
+	line-height: 0;
+	position: relative;
+	overflow: hidden;
+	transition: color 0.25s ease-in-out;
+	&::before {
+		content: "";
+		display: block;
+		z-index: -1;
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 0%;
+		height: 0%;
+		background: white;
+		border-radius: 50%;
+		transition: top 0.25s ease-in-out, left 0.25s ease-in-out, width 0.25s ease-in-out, height 0.25s ease-in-out;
+	}
+	& svg {
+		width: 1.5em;
+		height: 1.5em;
+		pointer-events: none;
+	}
+	&.menu-option-selected {
+		pointer-events: none;
+		color: black;
+		&::before {
+			top: -20.5%;
+			left: -20.5%;
+			width: 141%;
+			height: 141%;
+		}
+	}
+	&:not(.menu-option-selected):hover {
+		background: #FFF3;
+	}
+}
+
+.modal {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background: #0008;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	transition: background 0.25s linear;
+}
+.modal:has( > .hidden) {
+	background: transparent;
+	pointer-events: none;
+}
+.modal .menu {
+	position: relative;
+	/* different menu styles: */
+	font-size: 2.5vmax;
+	padding: 1em;
+	background: white;
+	color: black;
+	border: 0.25em solid red;
+	text-align: right;
+}
+
+.selection-window {
+	font-size: 1.3em;
+	margin-bottom: 1rem;
+	margin-right: 1rem;
+	left: unset;
+	right: 0em;
+	padding: 1em;
+}
+#selection-s.hidden {
+	display: none;
+}
+.selection-window button {
+	padding: 1em;
+	width: 100%;
+	font-size: 1em;
+}
+		</style>
+	</head>
+	<body>
+		<div class="mainContainer"></div>
+		<div class="menu">
+			<div>
+				<div class="menu-option" data-mode="Move"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 10 2 L 13 6 L 11 6 L 11 9 L 14 9 L 14 7 L 18 10 L 14 13 L 14 11 L 11 11 L 11 14 L 13 14 L 10 18 L 7 14 L 9 14 L 9 11 L 6 11 L 6 13 L 2 10 L 6 7 L 6 9 L 9 9 L 9 6 L 7 6 Z" fill="white" /></svg></div>
+				<div class="menu-option menu-option-selected" data-mode="Draw"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 13 2 L 18 7 L 7 18 L 2 18 L 2 13 Z M 13 4 L 4 13 L 7 16 L 16 7 Z" fill="white" /></svg></div>
+			</div>
+			<div>
+				<div class="menu-option" data-mode="Erase"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 13 2 L 18 7 L 7 18 L 2 13 Z M 10 7 L 13 10 L 16 7 L 13 4 Z" fill="white" /></svg></div>
+				<div class="menu-option" data-mode="Select"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 2 2 L 8 2 L 8 4 L 4 4 L 4 7 L 2 7 Z M 12 2 L 18 2 L 18 7 L 16 7 L 16 4 L 12 4 Z M 16 12 L 18 12 L 18 18 L 12 18 L 12 16 L 16 16 Z M 8 16 L 8 18 L 2 18 L 2 12 L 4 12 L 4 16 Z" fill="white" /></svg></div>
+			</div>
+			<div>
+				<div class="menu-option" data-mode="Quit"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 2 4 L 4 2 L 18 16 L 16 18 Z M 2 16 L 16 2 L 18 4 L 4 18 Z" fill="white" /></svg></div>
+				<div class="menu-option" data-mode="Text"><svg viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><path d="M 2 2 L 18 2 L 18 6 L 12 6 L 12 18 L 8 18 L 8 6 L 2 6 Z" fill="white" /></svg></div>
+			</div>
+			<!-- <div class="menu-button" data-mode="Settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><rect x="8" y="2" width="4" height="16" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(60)" transform-origin="center" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(120)" transform-origin="center" fill="white" /><circle cx="10" cy="10" r="6" fill="white" /><circle cx="10" cy="10" r="3" fill="black" /></svg></div> -->
+		</div>
+		<div class="menu" style="left: 8em; padding: 1em;">
+			<div><label for="is_strict_layer_checkbox">Layer: </label><!--
+				--><button onclick="whiteboard.updateLayer(-1, true)" style="padding-inline: 1em;">&ShortDownArrow;</button><!--
+				--><input type="number" value="0" min="-1" max="9" style="width: 2em;" id="layer-display" oninput="whiteboard.updateLayer(event.target.value, false)"><!--
+				--><button onclick="whiteboard.updateLayer(1, true)" style="padding-inline: 1em;">&ShortUpArrow;</button></div>
+			<div>Mode: <b id="mode-output">Draw</b></div>
+			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button><button onclick="whiteboard.attemptPaste()">Paste Image</button></div>
+		</div>
+		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em;" id="drawmode">
+			<div id="drawing_mode_select">Drawing Mode: </div>
+			<div id="color_select"><span style="display: inline-block; text-align: right; width: 4em;">Color: </span></div>
+		</div>
+		<div class="menu selection-window">
+			<div><b id="selection-number">0</b> item<span id="selection-s">s</span> selected</div>
+			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))">De-select</button></div>
+			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }))">Delete</button></div>
+		</div>
+		<div class="modal">
+			<div class="menu hidden" id="lost-connection-menu">
+				<div>Lost connection with the server!</div>
+				<div><button style="font-size: 0.75em; margin: 0; margin-top: 1em; border: none; border-radius: 0.25em; background: blue; padding: 0.5em; color: white; font-weight: bold;" onclick="whiteboard.connection = new Connection(whiteboard, false);">Reconnect</button></div>
+			</div>
+		</div>
+		<script src="/utils.js"></script>
+		<script src="/whiteboard.js"></script>
+	</body>
+</html>
