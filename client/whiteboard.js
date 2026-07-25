@@ -193,9 +193,20 @@ class DrawingObject extends SceneObject2D {
 	 */
 	draw(viewport, canvas, selected, onAnotherLayer) {
 		canvas.fillStyle = "none"
-		canvas.strokeStyle = selected ? "blue" : this.color
-		canvas.lineWidth = selected ? 8 : 5
 		canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
+		if (selected) {
+			canvas.strokeStyle = "blue"
+			canvas.lineWidth = 8
+			// Draw lines
+			canvas.beginPath()
+			let drawPos = viewport.getScreenPosFromStagePos(this.path[0].x, this.path[0].y); canvas.moveTo(drawPos.x, drawPos.y);
+			for (var i = 1; i < this.path.length; i++) {
+				let drawPos = viewport.getScreenPosFromStagePos(this.path[i].x, this.path[i].y); canvas.lineTo(drawPos.x, drawPos.y);
+			}
+			canvas.stroke()
+		}
+		canvas.strokeStyle = this.color
+		canvas.lineWidth = 5
 		// Draw lines
 		canvas.beginPath()
 		let drawPos = viewport.getScreenPosFromStagePos(this.path[0].x, this.path[0].y); canvas.moveTo(drawPos.x, drawPos.y);
@@ -298,9 +309,20 @@ class ShapeObject extends SceneObject2D {
 	draw(viewport, canvas, selected, onAnotherLayer) {
 		var path = drawingModes.filter((v) => v.type == "shape").filter((v) => v.shapeID == this.shapeID)[0].makeShape(this.start, this.end)
 		canvas.fillStyle = "none"
-		canvas.strokeStyle = selected ? "blue" : this.color
-		canvas.lineWidth = selected ? 8 : 5
 		canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
+		if (selected) {
+			canvas.strokeStyle = "blue"
+			canvas.lineWidth = 8
+			// Draw lines
+			canvas.beginPath()
+			let drawPos = viewport.getScreenPosFromStagePos(path[0].x, path[0].y); canvas.moveTo(drawPos.x, drawPos.y);
+			for (var i = 1; i < path.length; i++) {
+				let drawPos = viewport.getScreenPosFromStagePos(path[i].x, path[i].y); canvas.lineTo(drawPos.x, drawPos.y);
+			}
+			canvas.stroke()
+		}
+		canvas.strokeStyle = this.color
+		canvas.lineWidth = 5
 		// Draw lines
 		canvas.beginPath()
 		let drawPos = viewport.getScreenPosFromStagePos(path[0].x, path[0].y); canvas.moveTo(drawPos.x, drawPos.y);
@@ -1350,6 +1372,11 @@ class Whiteboard2D extends AbstractWhiteboard {
 		if (s == null) throw new Error("#selection-s is missing")
 		if (this.selection?.objects.length == 1) s.classList.add("hidden");
 		else s.classList.remove("hidden");
+		// update colors in window
+		var colors = document.querySelector("#selection-color-container")
+		if (colors == null) throw new Error("#selection-color-container is missing")
+		if (this.selection == null || (this.selection?.objects.filter((v) => ! Object.keys(v.data).includes("color")).length ?? 0) >= 1) colors.classList.add("inactive");
+		else colors.classList.remove("inactive");
 	}
 	getAllHandles() {
 		if (this.selection == null) return [];
@@ -1476,16 +1503,16 @@ var selectedDrawingMode = 0;
 		}).bind(null, i));
 	}
 })();
+var allColors = ["black", "red", "orange", "yellow", "#cc1", "green", "lime", "cyan", "blue", "purple", "#80f", "magenta", "gray", "brown"];
 var selectedColor = "black";
 (function makeColorButtons() {
 	// Get container
 	var colorContainer = document.querySelector("#color_select")
 	if (colorContainer == null) throw new Error("Color selector container is missing!")
-	for (var color of [
-		"black", "red", "orange", "yellow", "#cc1", "green", "lime", "cyan", "blue", "purple", "#80f", "magenta", "gray", "brown"
-	]) {
+	for (var color of allColors) {
 		let button = colorContainer.appendChild(document.createElement("div"))
 		button.classList.add("small-menu-option")
+		if (selectedColor == color) button.classList.add("menu-option-selected");
 		button.innerHTML = `<svg style="outline: 1px solid white;" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="${color}" /></svg>`
 		button.addEventListener("mousedown", ((/** @type {string} */ color) => {
 			selectedColor = color;
@@ -1496,6 +1523,33 @@ var selectedColor = "black";
 			selectedColor = color;
 			document.querySelector("#color_select .menu-option-selected")?.classList.remove("menu-option-selected");
 			button.classList.add("menu-option-selected");
+		}).bind(null, color));
+		// Wrap lines
+		if (colorContainer.children.length == 7) colorContainer.appendChild(document.createElement("br"))
+	}
+})();
+(function makeColorButtons() {
+	// Get container
+	var colorContainer = document.querySelector("#selection-color-container")
+	if (colorContainer == null) throw new Error("Selection color selector container is missing!")
+	for (var color of allColors) {
+		let button = colorContainer.appendChild(document.createElement("div"))
+		button.classList.add("small-menu-option")
+		button.innerHTML = `<svg style="outline: 1px solid white;" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="${color}" /></svg>`
+		button.addEventListener("click", ((/** @type {string} */ color) => {
+			button.setAttribute("style", `transform: scale(5);`);
+			requestAnimationFrame(() => {
+				button.classList.add("menu-option-selected");
+				button.removeAttribute("style");
+			});
+			setTimeout(() => {
+				button.classList.remove("menu-option-selected")
+			}, 1000);
+			whiteboard.selection?.objects.filter((v) => Object.keys(v.data).includes("color")).forEach((v) => {
+				v.data.color = color;
+				v.editedTime = Date.now();
+				v.reload();
+			});
 		}).bind(null, color));
 		// Wrap lines
 		if (colorContainer.children.length == 7) colorContainer.appendChild(document.createElement("br"))

@@ -124,6 +124,29 @@ textarea.unverified.another-layer {
 		background: #FFF3;
 	}
 }
+#selection-color-container .small-menu-option {
+	padding: 0.25em;
+	&::before {
+		display: none;
+	}
+	& svg {
+		width: 1em;
+		height: 1em;
+	}
+	&.menu-option-selected {
+		transform: scale(1);
+		transition: transform 1s cubic-bezier(0, 0.6, 0.3, 1);
+		z-index: 1;
+	}
+	&:not(.menu-option-selected):hover {
+		background: #FFF8;
+	}
+}
+#selection-color-container.inactive {
+	filter: grayscale(1);
+	opacity: 0.75;
+	pointer-events: none;
+}
 
 .modal {
 	position: absolute;
@@ -201,8 +224,9 @@ textarea.unverified.another-layer {
 		</div>
 		<div class="menu selection-window">
 			<div><b id="selection-number">0</b> item<span id="selection-s">s</span> selected</div>
-			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))">De-select</button></div>
-			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }))">Delete</button></div>
+			<div id="selection-color-container"></div>
+			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))" style="background-color: #CCC;">De-select</button></div>
+			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }))" style="background-color: #FCB;">Delete</button></div>
 		</div>
 		<div class="modal">
 			<div class="menu hidden" id="lost-connection-menu">
