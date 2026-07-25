@@ -32,23 +32,14 @@ path {
 	stroke-linejoin: round;
 }
 textarea {
-	width: max-content;
+	font-family: inherit;
+	border: 3px solid black;
+	box-sizing: border-box;
 	height: max-content;
 	position: absolute;
-}
-textarea.unverified {
-	opacity: 0.5;
-}
-textarea.another-layer {
-	opacity: 0.25;
-	pointer-events: none;
-}
-textarea.unverified.another-layer {
-	opacity: 0.125;
-}
-.focus-shadow {
+	resize: none;
 	box-shadow: 0em 0.3em 1em 0em blue;
-	color: blue;
+	scrollbar-width: none;
 }
 
 .menu {

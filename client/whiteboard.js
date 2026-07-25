@@ -192,6 +192,7 @@ class DrawingObject extends SceneObject2D {
 	 * @param {boolean} onAnotherLayer
 	 */
 	draw(viewport, canvas, selected, onAnotherLayer) {
+		canvas.lineJoin = "round"
 		canvas.fillStyle = "none"
 		canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
 		if (selected) {
@@ -308,6 +309,7 @@ class ShapeObject extends SceneObject2D {
 	 */
 	draw(viewport, canvas, selected, onAnotherLayer) {
 		var path = drawingModes.filter((v) => v.type == "shape").filter((v) => v.shapeID == this.shapeID)[0].makeShape(this.start, this.end)
+		canvas.lineJoin = "round"
 		canvas.fillStyle = "none"
 		canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
 		if (selected) {
@@ -414,64 +416,104 @@ class TextObject extends SceneObject2D {
 		this.width = data.width
 		/** @type {string} */
 		this.text = data.text
-		/** @type {HTMLTextAreaElement} */
-		this.elm = TextObject.createTextarea()
-		this.elm.setAttribute("class", "unverified")
-		// Add event listeners
-		var _text = this
-		this.elm.addEventListener("click", (event) => {
-			event.stopPropagation()
-		}, false)
-		this.elm.addEventListener("mousedown", (event) => {
-			if (getCurrentMode() == "Text") {
-				event.stopPropagation()
-			} else {
-				event.preventDefault()
-			}
-		}, false)
-		this.elm.addEventListener("touchstart", (event) => {
-			event.stopPropagation()
-		}, false)
-		this.elm.addEventListener("input", () => {
-			// Save new text
-			_text.text = _text.elm.value
-			_text.data.text = _text.text
-			if (_text.editedTime == null) _text.editedTime = Date.now()
-			// Update textbox size
-			var previousHeight = _text.elm.style.height;
-			_text.elm.style.height = "0px";
-			_text.elm.dataset.height = "calc(" + _text.elm.scrollHeight + "px + 0.25em)"
-			_text.elm.style.height = previousHeight;
-		})
-		this.elm.addEventListener("blur", () => {
-			_text.elm.dispatchEvent(new KeyboardEvent("input"))
-		})
-		// Set textarea initial value
-		_text.elm.value = _text.text
-		requestAnimationFrame(() => {
-			_text.elm.dispatchEvent(new KeyboardEvent("input"))
-			_text.editedTime = null
-		})
 	}
 	add() {
 		super.add()
-		document.querySelector(".mainContainer")?.appendChild(this.elm)
 	}
 	verify() {
 		super.verify()
-		this.elm.removeAttribute("class")
 	}
 	unverify() {
 		super.unverify()
-		this.elm.setAttribute("class", "unverified")
 	}
 	reload() {
-		if (document.activeElement == this.elm) return;
 		this.pos = this.data.pos
-		this.elm.value = this.data.text
 		this.width = Number(this.data.width);
-		this.elm.dispatchEvent(new KeyboardEvent("input"))
 		this.editedTime = null
+	}
+	getVisualLayout() {
+		// Measure text
+		var canvas = new OffscreenCanvas(1, 1).getContext('2d') ?? (() => {
+			throw new Error("context is missing");
+		})();
+		var texts = this.text.split("\n").map((v) => {
+			canvas.font = `16px sans-serif`
+			var metrics = canvas.measureText(v)
+			return {
+				text: v,
+				width: metrics.width,
+				baseline: metrics.fontBoundingBoxAscent,
+				height: metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent
+			}
+		})
+		// Create layout
+		const padding = 5;
+		var totalTextHeight = texts.reduce((a, b) => a + b.height, 0)
+		return {
+			boundingBox: {
+				x: this.pos.x,
+				y: this.pos.y,
+				w: this.width * this.scale,
+				h: (padding + totalTextHeight + padding) * this.scale
+			},
+			textElements: texts.map((v, i, l) => {
+				var previousElementHeight = l.slice(0, i).reduce((a, b) => a + b.height, 0)
+				var offsetHeight = (padding + previousElementHeight + v.baseline) * this.scale
+				return {
+					text: v.text,
+					x: this.pos.x + (padding * this.scale),
+					y: this.pos.y + offsetHeight
+				}
+			})
+		}
+	}
+	/**
+	 * @param {Viewport} viewport
+	 */
+	createTextAreaElement(viewport) {
+		var e = (() => {
+			var t = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea")
+			if (! (t instanceof HTMLTextAreaElement)) {
+				throw new Error("newly created element is of the wrong type!!! (This error is definitely not possible)")
+			}
+			return t
+		})();
+		const updateBoxSize = () => {
+			// Set text box pos and width
+			e.setAttribute("style", `top: ${(this.pos.y * viewport.zoom) + viewport.y}px; left: ${(this.pos.x * viewport.zoom) + viewport.x}px; \
+width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scale * viewport.zoom}px; padding: ${5 * this.scale * viewport.zoom}px; line-height: 1em;`)
+			// Set height
+			e.style.height = "0px";
+			e.style.height = `calc(${e.scrollHeight}px + ${0.25 * this.scale * viewport.zoom}em)`
+		}
+		// Add event listeners
+		e.addEventListener("click", (event) => {
+			event.stopPropagation()
+		}, false)
+		e.addEventListener("mousedown", (event) => {
+			event.stopPropagation()
+		}, false)
+		e.addEventListener("touchstart", (event) => {
+			event.stopPropagation()
+		}, false)
+		e.addEventListener("input", () => {
+			// Save new text
+			this.text = e.value
+			this.data.text = this.text
+			if (this.editedTime == null) this.editedTime = Date.now()
+			// Update textbox size
+			updateBoxSize();
+		})
+		e.addEventListener("blur", () => {
+			e.dispatchEvent(new KeyboardEvent("input"));
+			e.remove();
+		})
+		// Set textarea initial value
+		e.value = this.text
+		requestAnimationFrame(() => {
+			updateBoxSize();
+		})
+		return e
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -480,60 +522,46 @@ class TextObject extends SceneObject2D {
 	 * @param {boolean} onAnotherLayer
 	 */
 	draw(viewport, canvas, selected, onAnotherLayer) {
-		// No canvas drawing is needed
-		this.elm.setAttribute("style", `top: ${(this.pos.y * viewport.zoom) + viewport.y}px; left: ${(this.pos.x * viewport.zoom) + viewport.x}px; \
-width: ${this.width}px; height: ${this.elm.dataset.height}; transform: scale(${viewport.zoom * this.scale}); transform-origin: 0px 0px;`)
-		// Focus
-		if (selected) {
-			this.elm.classList.add("focus-shadow")
-		} else {
-			this.elm.classList.remove("focus-shadow")
-		}
-		// Layer
-		if (onAnotherLayer) {
-			this.elm.classList.add("another-layer")
-		} else {
-			this.elm.classList.remove("another-layer")
+		var layout = this.getVisualLayout();
+		// Draw outline
+		canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
+		canvas.strokeStyle = "black"
+		canvas.lineJoin = "miter"
+		canvas.lineWidth = 2
+		var originPos = viewport.getScreenPosFromStagePos(layout.boundingBox.x, layout.boundingBox.y)
+		canvas.strokeRect(originPos.x, originPos.y, layout.boundingBox.w * viewport.zoom, layout.boundingBox.h * viewport.zoom)
+		// Draw text
+		canvas.fillStyle = "black"
+		for (var textElement of layout.textElements) {
+			canvas.font = `${viewport.zoom * this.scale * 16}px sans-serif`
+			var pos = viewport.getScreenPosFromStagePos(textElement.x, textElement.y)
+			canvas.fillText(textElement.text, pos.x, pos.y)
 		}
 	}
 	remove() {
 		super.remove()
-		this.elm.remove()
 	}
 	/**
 	 * @param {Viewport} viewport
 	 * @returns {Rect}
 	 */
 	getBoundingRect(viewport) {
-		var elementRect = this.elm.getBoundingClientRect()
-		var stageSize = { x: elementRect.width / viewport.zoom, y: elementRect.height / viewport.zoom }
-		// stagePos = this.pos
-		return {
-			x: this.pos.x,
-			y: this.pos.y,
-			w: stageSize.x,
-			h: stageSize.y
-		}
+		return this.getVisualLayout().boundingBox;
 	}
 	/**
 	 * @param {Viewport} viewport
 	 * @param {Line} line
 	 */
 	collideline(viewport, line) {
-		var screenPosStart = viewport.getScreenPosFromStagePos(line.start.x, line.start.y)
-		var screenPosEnd = viewport.getScreenPosFromStagePos(line.end.x, line.end.y)
-		var domRect = this.elm.getBoundingClientRect()
-		return rectangleIntersectsLine({ x: domRect.x, y: domRect.y, w: domRect.width, h: domRect.height }, { start: screenPosStart, end: screenPosEnd })
+		return rectangleIntersectsLine(this.getVisualLayout().boundingBox, line)
 	}
 	/**
 	 * @param {Viewport} viewport
 	 * @param {Rect} rect
 	 */
 	colliderect(viewport, rect) {
-		var elementRect = this.elm.getBoundingClientRect()
-		var stageSize = { x: elementRect.width / viewport.zoom, y: elementRect.height / viewport.zoom }
-		// stagePos = this.pos
-		return rect.x <= this.pos.x + stageSize.x && rect.x + rect.w >= this.pos.x && rect.y <= this.pos.y + stageSize.y && rect.y + rect.h >= this.pos.y
+		var stageRect = this.getVisualLayout().boundingBox
+		return rect.x <= stageRect.x + stageRect.w && rect.x + rect.w >= stageRect.x && rect.y <= stageRect.y + stageRect.h && rect.y + rect.h >= stageRect.y
 	}
 	/**
 	 * @param {number} dx
@@ -551,13 +579,6 @@ width: ${this.width}px; height: ${this.elm.dataset.height}; transform: scale(${v
 	 * @returns {Handle[]}
 	 */
 	getHandles(viewport, boundingBox) { return [new TextBoxWidthHandle(viewport, this, boundingBox), new RescalingHandle(viewport, this, boundingBox)]; }
-	static createTextarea() {
-		var t = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea")
-		if (! (t instanceof HTMLTextAreaElement)) {
-			throw new Error("newly created element is of the wrong type!!! (This error is definitely not possible)")
-		}
-		return t
-	}
 }
 class ImageObject extends SceneObject2D {
 	static typeID = "image"
@@ -751,10 +772,9 @@ class TextBoxWidthHandle extends Handle {
 		// Move object
 		this.selection.width = (this.pos.x - this.rect.x) / this.selection.scale;
 		this.selection.data.width = this.selection.width;
-		this.selection.elm.dispatchEvent(new InputEvent("input"))
 		// Move rect
-		this.rect.w = this.selection.width;
-		this.rect.h = this.selection.elm.getBoundingClientRect().height;
+		this.rect.w = this.selection.width * this.selection.scale;
+		this.rect.h = this.selection.getVisualLayout().boundingBox.h;
 	}
 }
 class RescalingHandle extends Handle {
@@ -783,10 +803,9 @@ class RescalingHandle extends Handle {
 		this.selection.scale *= scaleFactor;
 		this.selection.data.scale = this.selection.scale;
 		if (this.selection instanceof TextObject) {
-			this.selection.elm.dispatchEvent(new InputEvent("input"))
 			// Move rect
 			this.rect.w = this.selection.width * this.selection.scale;
-			this.rect.h = this.selection.elm.getBoundingClientRect().height / this.viewport.zoom;
+			this.rect.h = this.selection.getVisualLayout().boundingBox.h;
 		} else {
 			this.selection.editedTime = Date.now()
 			// Move rect
@@ -835,12 +854,22 @@ class Renderer2D {
 		this.loopID = 0;
 	}
 	render() {
+		var screenTopLeft = this.whiteboard.viewport.getStagePosFromScreenPos(0, 0)
+		var screenBottomRight = this.whiteboard.viewport.getStagePosFromScreenPos(window.innerWidth, window.innerHeight)
+		var screenRect = {
+			x: screenTopLeft.x,
+			y: screenTopLeft.y,
+			w: screenBottomRight.x - screenTopLeft.x,
+			h: screenBottomRight.y - screenTopLeft.y
+		}
 		mainCanvasCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height)
 		mainCanvasCtx.lineCap = "round"
 		mainCanvasCtx.lineJoin = "round"
 		for (var i = 0; i < this.whiteboard.objects.length; i++) {
 			var obj = this.whiteboard.objects[i];
-			obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection?.objects.includes(obj) ?? false, this.whiteboard.strictLayer && this.whiteboard.selectedLayer != obj.layer)
+			if (obj.colliderect(this.whiteboard.viewport, screenRect)) {
+				obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection?.objects.includes(obj) ?? false, this.whiteboard.strictLayer && this.whiteboard.selectedLayer != obj.layer)
+			}
 		}
 		// Render selection
 		if (this.whiteboard.selection != null) {
@@ -1810,6 +1839,16 @@ class TextTouchMode extends TouchMode {
 	 */
 	constructor(touch) {
 		super(touch)
+		/** @type {HTMLTextAreaElement | null} */
+		this.focusTextArea = null;
+		// Check if we are clicking on a text box
+		var checkPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)
+		var textbox = this.touch.whiteboard.objects.filter((v) => v instanceof TextObject).find((v) => v.colliderect(this.touch.whiteboard.viewport, { x: checkPos.x, y: checkPos.y, w: 0, h: 0 }))
+		if (textbox != undefined) {
+			var e = textbox.createTextAreaElement(this.touch.whiteboard.viewport);
+			document.querySelector(".mainContainer")?.appendChild(e);
+			this.focusTextArea = e;
+		}
 	}
 	/**
 	 * @param {number} previousX
@@ -1824,17 +1863,21 @@ class TextTouchMode extends TouchMode {
 	 * @param {number} previousY
 	 */
 	onEnd(previousX, previousY) {
-		this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
-			typeID: "text",
-			objectID: AbstractSceneObject.generateObjectID(),
-			data: {
-				"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY),
-				"width": 200,
-				"scale": 1.5 / this.touch.whiteboard.viewport.zoom,
-				"text": "Enter text here"
-			},
-			blob: null
-		}]))
+		if (this.focusTextArea == null) {
+			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+				typeID: "text",
+				objectID: AbstractSceneObject.generateObjectID(),
+				data: {
+					"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY),
+					"width": 200,
+					"scale": 1.5 / this.touch.whiteboard.viewport.zoom,
+					"text": "Enter text here"
+				},
+				blob: null
+			}]))
+		} else {
+			this.focusTextArea.focus();
+		}
 	}
 	/**
 	 * @param {number} previousX
