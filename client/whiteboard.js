@@ -471,6 +471,14 @@ class TextObject extends SceneObject2D {
 	 * @param {Viewport} viewport
 	 */
 	createTextAreaElement(viewport) {
+		const lineHeight = (() => {
+			var canvas = new OffscreenCanvas(1, 1).getContext('2d') ?? (() => {
+				throw new Error("context is missing");
+			})();
+			canvas.font = `16px sans-serif`
+			var metrics = canvas.measureText("Text")
+			return metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent
+		})();
 		var e = (() => {
 			var t = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea")
 			if (! (t instanceof HTMLTextAreaElement)) {
@@ -481,10 +489,10 @@ class TextObject extends SceneObject2D {
 		const updateBoxSize = () => {
 			// Set text box pos and width
 			e.setAttribute("style", `top: ${(this.pos.y * viewport.zoom) + viewport.y}px; left: ${(this.pos.x * viewport.zoom) + viewport.x}px; \
-width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scale * viewport.zoom}px; padding: ${5 * this.scale * viewport.zoom}px; line-height: 1em;`)
+width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scale * viewport.zoom}px; padding: ${5 * this.scale * viewport.zoom}px; line-height: ${lineHeight * this.scale * viewport.zoom}px;`)
 			// Set height
 			e.style.height = "0px";
-			e.style.height = `calc(${e.scrollHeight}px + ${0.25 * this.scale * viewport.zoom}em)`
+			e.style.height = `${e.scrollHeight}px`
 		}
 		// Add event listeners
 		e.addEventListener("click", (event) => {
@@ -1770,13 +1778,7 @@ class Draw2DShapeTouchMode extends TouchMode {
 		this.drawing_mode = drawing_mode
 	}
 	getSavedTouchPos() {
-		var exactScreenPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y)
-		var zoomLevel = this.touch.whiteboard.viewport.zoom * 50
-		zoomLevel = Math.pow(10, Math.floor(Math.log10(zoomLevel)));
-		return {
-			x: Math.round(exactScreenPos.x * zoomLevel) / zoomLevel,
-			y: Math.round(exactScreenPos.y * zoomLevel) / zoomLevel
-		}
+		return this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y)
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -1839,16 +1841,34 @@ class TextTouchMode extends TouchMode {
 	 */
 	constructor(touch) {
 		super(touch)
-		/** @type {HTMLTextAreaElement | null} */
-		this.focusTextArea = null;
-		// Check if we are clicking on a text box
 		var checkPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y)
+		/** @type {HTMLTextAreaElement | Point} */
+		this.originalElement = checkPos;
+		this.newPos = checkPos;
+		// Check if we are clicking on a text box
 		var textbox = this.touch.whiteboard.objects.filter((v) => v instanceof TextObject).find((v) => v.colliderect(this.touch.whiteboard.viewport, { x: checkPos.x, y: checkPos.y, w: 0, h: 0 }))
 		if (textbox != undefined) {
 			var e = textbox.createTextAreaElement(this.touch.whiteboard.viewport);
 			document.querySelector(".mainContainer")?.appendChild(e);
-			this.focusTextArea = e;
+			this.originalElement = e;
 		}
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 */
+	render(viewport, canvas) {
+		if (this.originalElement instanceof HTMLTextAreaElement) return;
+		canvas.fillStyle = "lime"
+		canvas.globalAlpha = 0.25
+		// Draw rect
+		var startPos = this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.originalElement.x, this.originalElement.y)
+		var endPos = this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.newPos.x, this.newPos.y)
+		canvas.fillRect(startPos.x, startPos.y, endPos.x - startPos.x, endPos.y - startPos.y)
+		// Draw text
+		var fontSize = (endPos.y - startPos.y) / 64
+		canvas.font = `${fontSize * 16}px sans-serif`
+		canvas.fillText("Enter text here", startPos.x + (5 * fontSize), startPos.y + (5 * fontSize) + (fontSize * 16))
 	}
 	/**
 	 * @param {number} previousX
@@ -1857,26 +1877,37 @@ class TextTouchMode extends TouchMode {
 	 * @param {number} newY
 	 */
 	onMove(previousX, previousY, newX, newY) {
+		this.newPos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y)
 	}
 	/**
 	 * @param {number} previousX
 	 * @param {number} previousY
 	 */
 	onEnd(previousX, previousY) {
-		if (this.focusTextArea == null) {
+		if (this.originalElement instanceof HTMLTextAreaElement) {
+			this.originalElement.focus();
+			this.originalElement.setSelectionRange(0, this.originalElement.value.length);
+		} else if (dist(this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.originalElement.x, this.originalElement.y), { x: previousX, y: previousY }) > 20) {
+			var startPos = {
+				x: Math.min(this.originalElement.x, this.newPos.x),
+				y: Math.min(this.originalElement.y, this.newPos.y)
+			}
+			var endPos = {
+				x: Math.max(this.originalElement.x, this.newPos.x),
+				y: Math.max(this.originalElement.y, this.newPos.y)
+			}
+			var scale = (endPos.y - startPos.y) / 64;
 			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
 				typeID: "text",
 				objectID: AbstractSceneObject.generateObjectID(),
 				data: {
-					"pos": this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY),
-					"width": 200,
-					"scale": 1.5 / this.touch.whiteboard.viewport.zoom,
+					"pos": startPos,
+					"width": Math.abs(endPos.x - startPos.x) / scale,
+					"scale": scale,
 					"text": "Enter text here"
 				},
 				blob: null
 			}]))
-		} else {
-			this.focusTextArea.focus();
 		}
 	}
 	/**
