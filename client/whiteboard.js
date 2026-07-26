@@ -433,11 +433,48 @@ class TextObject extends SceneObject2D {
 	}
 	getVisualLayout() {
 		// Measure text
+		const padding = 5;
 		var canvas = new OffscreenCanvas(1, 1).getContext('2d') ?? (() => {
 			throw new Error("context is missing");
 		})();
-		var texts = this.text.split("\n").map((v) => {
+		/** @type {{ text: string, width: number, baseline: number, height: number }[]} */
+		var textLines = this.text.split("\n").flatMap((v) => {
 			canvas.font = `16px sans-serif`
+			// Wrap text into lines
+			if (v.trim().length == 0) return [""]
+			/** @type {string[]} */
+			var lines = [];
+			var line = "";
+			for (var i = 0; i < v.split(" ").length; ) {
+				var word = v.split(" ")[i];
+				var metrics = canvas.measureText(line + word + " ");
+				if (metrics.width > this.width-(padding*2)) {
+					if (line == "") {
+						// Wrap single word
+						for (var j = 0; j < word.length; j++) {
+							var letter = word[j];
+							var metrics = canvas.measureText(line + letter);
+							if (metrics.width > this.width-(padding*2)) {
+								lines.push(line);
+								line = "";
+							}
+							line += letter;
+						}
+						line += " ";
+						i++;
+					} else {
+						lines.push(line.trim());
+						line = "";
+					}
+					continue;
+				}
+				line += word + " ";
+				i++;
+			}
+			if (line.trim().length > 0) lines.push(line.trim())
+			return lines
+		}).map((v) => {
+			// Measure text
 			var metrics = canvas.measureText(v)
 			return {
 				text: v,
@@ -447,8 +484,7 @@ class TextObject extends SceneObject2D {
 			}
 		})
 		// Create layout
-		const padding = 5;
-		var totalTextHeight = texts.reduce((a, b) => a + b.height, 0)
+		var totalTextHeight = textLines.reduce((a, b) => a + b.height, 0)
 		return {
 			boundingBox: {
 				x: this.pos.x,
@@ -456,7 +492,7 @@ class TextObject extends SceneObject2D {
 				w: this.width * this.scale,
 				h: (padding + totalTextHeight + padding) * this.scale
 			},
-			textElements: texts.map((v, i, l) => {
+			textElements: textLines.map((v, i, l) => {
 				var previousElementHeight = l.slice(0, i).reduce((a, b) => a + b.height, 0)
 				var offsetHeight = (padding + previousElementHeight + v.baseline) * this.scale
 				return {
@@ -517,10 +553,13 @@ width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scal
 			e.remove();
 		})
 		// Set textarea initial value
-		e.value = this.text
-		requestAnimationFrame(() => {
-			updateBoxSize();
-		})
+		e.value = this.text;
+		(function updateBoxSizeAfterConnected() {
+			requestAnimationFrame(() => {
+				if (e.isConnected) updateBoxSize();
+				else updateBoxSizeAfterConnected();
+			});
+		})();
 		return e
 	}
 	/**
@@ -1551,7 +1590,7 @@ var selectedDrawingMode = 0;
 })();
 var allColors = ["black", "red", "orange", "yellow", "#cc1", "green", "lime", "cyan", "blue", "purple", "#80f", "magenta", "gray", "brown"];
 var selectedColor = "black";
-(function makeColorButtons() {
+(function makeColorButtonsInDrawingModeMenu() {
 	// Get container
 	var colorContainer = document.querySelector("#color_select")
 	if (colorContainer == null) throw new Error("Color selector container is missing!")
@@ -1559,7 +1598,7 @@ var selectedColor = "black";
 		let button = colorContainer.appendChild(document.createElement("div"))
 		button.classList.add("small-menu-option")
 		if (selectedColor == color) button.classList.add("menu-option-selected");
-		button.innerHTML = `<svg style="outline: 1px solid white;" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="${color}" /></svg>`
+		button.innerHTML = `<svg style="outline: 1px solid white; background: ${color};" viewBox="0 0 10 10"></svg>`
 		button.addEventListener("mousedown", ((/** @type {string} */ color) => {
 			selectedColor = color;
 			document.querySelector("#color_select .menu-option-selected")?.classList.remove("menu-option-selected");
@@ -1574,14 +1613,14 @@ var selectedColor = "black";
 		if (colorContainer.children.length == 7) colorContainer.appendChild(document.createElement("br"))
 	}
 })();
-(function makeColorButtons() {
+(function makeColorButtonsInSelectionMenu() {
 	// Get container
 	var colorContainer = document.querySelector("#selection-color-container")
 	if (colorContainer == null) throw new Error("Selection color selector container is missing!")
 	for (var color of allColors) {
 		let button = colorContainer.appendChild(document.createElement("div"))
 		button.classList.add("small-menu-option")
-		button.innerHTML = `<svg style="outline: 1px solid white;" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="${color}" /></svg>`
+		button.innerHTML = `<svg style="outline: 1px solid white; background: ${color};" viewBox="0 0 10 10"></svg>`
 		button.addEventListener("click", ((/** @type {string} */ color) => {
 			button.setAttribute("style", `transform: scale(5);`);
 			requestAnimationFrame(() => {
@@ -1848,9 +1887,7 @@ class TextTouchMode extends TouchMode {
 		// Check if we are clicking on a text box
 		var textbox = this.touch.whiteboard.objects.filter((v) => v instanceof TextObject).find((v) => v.colliderect(this.touch.whiteboard.viewport, { x: checkPos.x, y: checkPos.y, w: 0, h: 0 }))
 		if (textbox != undefined) {
-			var e = textbox.createTextAreaElement(this.touch.whiteboard.viewport);
-			document.querySelector(".mainContainer")?.appendChild(e);
-			this.originalElement = e;
+			this.originalElement = textbox.createTextAreaElement(this.touch.whiteboard.viewport);
 		}
 	}
 	/**
@@ -1885,9 +1922,12 @@ class TextTouchMode extends TouchMode {
 	 */
 	onEnd(previousX, previousY) {
 		if (this.originalElement instanceof HTMLTextAreaElement) {
+			// Focus text box
+			document.querySelector(".mainContainer")?.appendChild(this.originalElement);
 			this.originalElement.focus();
 			this.originalElement.setSelectionRange(0, this.originalElement.value.length);
 		} else if (dist(this.touch.whiteboard.viewport.getScreenPosFromStagePos(this.originalElement.x, this.originalElement.y), { x: previousX, y: previousY }) > 20) {
+			// Create text box
 			var startPos = {
 				x: Math.min(this.originalElement.x, this.newPos.x),
 				y: Math.min(this.originalElement.y, this.newPos.y)
