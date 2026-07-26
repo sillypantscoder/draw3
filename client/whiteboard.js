@@ -445,9 +445,9 @@ class TextObject extends SceneObject2D {
 			/** @type {string[]} */
 			var lines = [];
 			var line = "";
-			for (var i = 0; i < v.split(" ").length; ) {
-				var word = v.split(" ")[i];
-				var metrics = canvas.measureText(line + word + " ");
+			for (var i = 0; i < v.split(/(?=[ \t])/ig).length; ) {
+				var word = v.split(/(?=[ \t])/ig)[i];
+				var metrics = canvas.measureText(line + word);
 				if (metrics.width > this.width-(padding*2)) {
 					if (line == "") {
 						// Wrap single word
@@ -455,12 +455,11 @@ class TextObject extends SceneObject2D {
 							var letter = word[j];
 							var metrics = canvas.measureText(line + letter);
 							if (metrics.width > this.width-(padding*2)) {
-								lines.push(line);
+								lines.push(line.trim());
 								line = "";
 							}
 							line += letter;
 						}
-						line += " ";
 						i++;
 					} else {
 						lines.push(line.trim());
@@ -468,7 +467,7 @@ class TextObject extends SceneObject2D {
 					}
 					continue;
 				}
-				line += word + " ";
+				line += word;
 				i++;
 			}
 			if (line.trim().length > 0) lines.push(line.trim())
@@ -525,7 +524,7 @@ class TextObject extends SceneObject2D {
 		const updateBoxSize = () => {
 			// Set text box pos and width
 			e.setAttribute("style", `top: ${(this.pos.y * viewport.zoom) + viewport.y}px; left: ${(this.pos.x * viewport.zoom) + viewport.x}px; \
-width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scale * viewport.zoom}px; padding: ${5 * this.scale * viewport.zoom}px; line-height: ${lineHeight * this.scale * viewport.zoom}px;`)
+width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scale * viewport.zoom}px; padding: 0.3125em; line-height: ${lineHeight * this.scale * viewport.zoom}px;`)
 			// Set height
 			e.style.height = "0px";
 			e.style.height = `${e.scrollHeight}px`
@@ -1160,6 +1159,14 @@ class AbstractWhiteboard {
 				if (e.key == "Escape") {
 					// Un-focus textarea
 					focusedElement.blur();
+				}
+				if (e.key == "Tab") {
+					e.preventDefault();
+					// Add tab character at cursor position
+					var start = focusedElement.selectionStart;
+					var end = focusedElement.selectionEnd;
+					focusedElement.value = focusedElement.value.substring(0, start) + "\t" + focusedElement.value.substring(end);
+					focusedElement.selectionStart = focusedElement.selectionEnd = start + 1;
 				}
 				e.stopPropagation()
 			}
