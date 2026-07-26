@@ -1155,6 +1155,10 @@ class AbstractWhiteboard {
 		this.blobs = new Map()
 		/** @type {{ selectedLayer: number, visibility: 0 | 1 | 2, interactable: boolean }} */
 		this.layerMode = { selectedLayer: 0, visibility: 1, interactable: false };
+		/** @type {"normal" | "pan" | "erase" | "ignore"} */
+		this.rightClickMode = "pan"
+		/** @type {"normal" | "pan" | "erase" | "ignore"} */
+		this.miscClickMode = "erase"
 		this.connection = new Connection(this, true)
 		// Undo stack objects
 		this.shiftKeyDown = false
@@ -1359,10 +1363,10 @@ class AbstractWhiteboard {
 	}
 	/**
 	 * @param {TrackedTouch<AbstractWhiteboard<ViewportType, ObjectType>>} touch
-	 * @param {boolean} isEraserButton
+	 * @param {"left" | "right" | "other"} button
 	 * @returns {TouchMode<AbstractWhiteboard<ViewportType, ObjectType>>}
 	 */
-	getTouchMode(touch, isEraserButton) {
+	getTouchMode(touch, button) {
 		throw new Error("`AbstractWhiteboard` is an abstract class; `getTouchMode` must be overridden")
 	}
 }
@@ -1518,11 +1522,18 @@ class Whiteboard2D extends AbstractWhiteboard {
 	}
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
-	 * @param {boolean} isEraserButton
+	 * @param {"left" | "right" | "other"} button
 	 * @returns {TouchMode<Whiteboard2D>}
 	 */
-	getTouchMode(touch, isEraserButton) {
-		if (isEraserButton) return new EraseTouchMode(touch)
+	getTouchMode(touch, button) {
+		// Handle custom button configurations
+		/** @type {"normal" | "pan" | "erase" | "ignore"} */
+		var buttonMode = "normal"
+		if (button == "right") buttonMode = this.rightClickMode;
+		if (button == "other") buttonMode = this.miscClickMode;
+		if (buttonMode == "erase") return new EraseTouchMode(touch)
+		if (buttonMode == "pan") return new PanTouchMode(touch)
+		if (buttonMode == "ignore") return new TouchMode(touch)
 		// First of all, if there is another touch, we are definitely zooming or panning or something.
 		if (touch.allTouches.length >= 1) {
 			// Also, so are all the other touches.
@@ -1697,15 +1708,15 @@ class TrackedTouch {
 	 * @param {number} initialY
 	 * @param {number} id
 	 * @param {TrackedTouch<WhiteboardType>[]} allTouches
-	 * @param {boolean} isEraserButton
+	 * @param {"left" | "right" | "other"} button
 	 */
-	constructor(whiteboard, initialX, initialY, id, allTouches, isEraserButton) {
+	constructor(whiteboard, initialX, initialY, id, allTouches, button) {
 		this.whiteboard = whiteboard
 		this.x = initialX
 		this.y = initialY
 		this.id = id
 		this.allTouches = allTouches
-		this.mode = whiteboard.getTouchMode(this, isEraserButton)
+		this.mode = whiteboard.getTouchMode(this, button)
 		// blur current element
 		var a = document.activeElement
 		if (a != null) {
@@ -2286,7 +2297,7 @@ class TouchHandler {
 			var idx = this.touches.findIndex((v) => v.id == touchID)
 			if (idx == -1) {
 				// New touch!
-				var touch = new TrackedTouch(this.whiteboard, touchList[i].clientX, touchList[i].clientY, touchID, this.touches, false)
+				var touch = new TrackedTouch(this.whiteboard, touchList[i].clientX, touchList[i].clientY, touchID, this.touches, "left")
 				this.touches.push(touch);
 			} else {
 				// Update existing touch!
@@ -2313,12 +2324,15 @@ class TouchHandler {
 		// Mouse Listeners
 		mainContainer.addEventListener("mousedown", (e) => {
 			if (e.target instanceof HTMLTextAreaElement && getCurrentMode() == "Text") return
-			if (e.buttons > 1) {
+			if (e.buttons > 2) {
 				_this.mousecancel(0)
-				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, true));
+				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, "other"));
+			} else if (e.buttons == 2) {
+				_this.mousecancel(0)
+				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, "right"));
 			} else {
 				_this.mouseup(0)
-				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, false));
+				this.touches.push(new TrackedTouch(_this.whiteboard, e.clientX, e.clientY, 0, _this.touches, "left"));
 			}
 		});
 		mainContainer.addEventListener("mousemove", (e) => {
@@ -2329,6 +2343,7 @@ class TouchHandler {
 		});
 		mainContainer.addEventListener("mouseup", (e) => {
 			_this.mouseup(0);
+			e.preventDefault();
 		});
 		mainContainer.addEventListener("contextmenu", (e) => {
 			e.preventDefault()

@@ -231,6 +231,19 @@ textarea {
 					<br><label><input type="checkbox" oninput="whiteboard.layerMode.interactable = this.checked;"> Interactable</label>
 				</div>
 				<hr>
+				<div style="font-size: 1.5rem;">Right-click mode: <select oninput="whiteboard.rightClickMode = this.value">
+					<option value="normal">Tool (Normal)</option>
+					<option value="pan" selected>Pan</option>
+					<option value="erase">Erase</option>
+					<option value="ignore">Ignore</option>
+				</select></div>
+				<div style="font-size: 1.5rem;">Auxiliary click mode: <select oninput="whiteboard.miscClickMode = this.value">
+					<option value="normal">Tool (Normal)</option>
+					<option value="pan">Pan</option>
+					<option value="erase" selected>Erase</option>
+					<option value="ignore">Ignore</option>
+				</select></div>
+				<hr>
 				<div><button style="font-size: 0.75em; margin: 0; border: none; border-radius: 0.25em; background: blue; padding: 0.5em; color: white; font-weight: bold;" onclick="document.querySelector('#settings-menu').classList.add('hidden');">Close</button></div>
 			</div>
 		</div>
