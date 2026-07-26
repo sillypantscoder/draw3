@@ -162,8 +162,7 @@ textarea {
 	padding: 1em;
 	background: white;
 	color: black;
-	border: 0.25em solid red;
-	text-align: right;
+	text-align: left;
 }
 
 .selection-window {
@@ -207,7 +206,7 @@ textarea {
 				--><input type="number" value="0" min="-1" max="9" style="width: 2em;" id="layer-display" oninput="whiteboard.updateLayer(event.target.value, false)"><!--
 				--><button onclick="whiteboard.updateLayer(1, true)" style="padding-inline: 1em;">&ShortUpArrow;</button></div>
 			<div>Mode: <b id="mode-output">Draw</b></div>
-			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button><button onclick="whiteboard.attemptPaste()">Paste Image</button></div>
+			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button><button onclick="document.querySelector('#settings-menu').classList.remove('hidden'); this.blur();">Settings...</button></div>
 		</div>
 		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em;" id="drawmode">
 			<div id="drawing_mode_select">Drawing Mode: </div>
@@ -219,10 +218,29 @@ textarea {
 			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))" style="background-color: #CCC;">De-select</button></div>
 			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }))" style="background-color: #FCB;">Delete</button></div>
 		</div>
+		<div class="modal" onmouseup="if (event.target == event.currentTarget) event.target.children[0].classList.add('hidden');">
+			<div class="menu hidden" id="settings-menu">
+				<div>Settings</div>
+				<hr>
+				<div style="font-size: 1rem;"><button onclick="whiteboard.attemptPaste(); document.querySelector('#settings-menu').classList.add('hidden')">Paste Image</button><button onclick="whiteboard.zoomViewportToFill(); document.querySelector('#settings-menu').classList.add('hidden')">Zoom to Fill</button></div>
+				<hr>
+				<div style="font-size: 1.5rem;">Objects on other layers are:
+					<br><label><input type="radio" name="whiteboard_layer_mode" oninput="if (this.checked) whiteboard.layerMode.visibility = 2;"> Visible</label>
+					<br><label><input type="radio" name="whiteboard_layer_mode" oninput="if (this.checked) whiteboard.layerMode.visibility = 1;" checked> Partially transparent</label>
+					<br><label><input type="radio" name="whiteboard_layer_mode" oninput="if (this.checked) whiteboard.layerMode.visibility = 0;"> Invisible</label>
+					<br><label><input type="checkbox" oninput="whiteboard.layerMode.interactable = this.checked;"> Interactable</label>
+				</div>
+				<hr>
+				<div><button style="font-size: 0.75em; margin: 0; border: none; border-radius: 0.25em; background: blue; padding: 0.5em; color: white; font-weight: bold;" onclick="document.querySelector('#settings-menu').classList.add('hidden');">Close</button></div>
+			</div>
+		</div>
 		<div class="modal">
-			<div class="menu hidden" id="lost-connection-menu">
+			<div class="menu hidden" id="lost-connection-menu" style="border: 0.25em solid red;">
 				<div>Lost connection with the server!</div>
-				<div><button style="font-size: 0.75em; margin: 0; margin-top: 1em; border: none; border-radius: 0.25em; background: blue; padding: 0.5em; color: white; font-weight: bold;" onclick="whiteboard.connection = new Connection(whiteboard, false);">Reconnect</button></div>
+				<div style="display: flex; justify-content: space-between; margin-top: 1em;">
+					<button style="font-size: 0.75em; margin: 0; border: none; border-radius: 0.25em; background: red; padding: 0.5em; color: white; font-weight: bold;" onclick="location.replace('/');">Exit</button>
+					<button style="font-size: 0.75em; margin: 0; border: none; border-radius: 0.25em; background: blue; padding: 0.5em; color: white; font-weight: bold;" onclick="whiteboard.connection = new Connection(whiteboard, false);">Reconnect</button>
+				</div>
 			</div>
 		</div>
 		<script src="/utils.js"></script>

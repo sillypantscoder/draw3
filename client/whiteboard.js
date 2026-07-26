@@ -928,8 +928,10 @@ class Renderer2D {
 		mainCanvasCtx.lineJoin = "round"
 		for (var i = 0; i < this.whiteboard.objects.length; i++) {
 			var obj = this.whiteboard.objects[i];
-			if (obj.colliderect(this.whiteboard.viewport, screenRect)) {
-				obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection?.objects.includes(obj) ?? false, this.whiteboard.strictLayer && this.whiteboard.selectedLayer != obj.layer)
+			var visibility = this.whiteboard.layerMode.selectedLayer == obj.layer ? 2 : this.whiteboard.layerMode.visibility;
+			if (this.whiteboard.selection != null && this.whiteboard.selection.objects.includes(obj) && visibility == 0) visibility = 1;
+			if (visibility > 0 && obj.colliderect(this.whiteboard.viewport, screenRect)) {
+				obj.draw(this.whiteboard.viewport, mainCanvasCtx, this.whiteboard.selection?.objects.includes(obj) ?? false, visibility == 1)
 			}
 		}
 		// Render selection
@@ -1110,7 +1112,7 @@ class Connection {
 		// Convert back to blob
 		imageDataBlob = await canvas.convertToBlob({ type: "image/webp", quality: 0.75 });
 		// Create image
-		this.createObject(AbstractSceneObject.generateObjectID(), this.whiteboard.selectedLayer, "image", {
+		this.createObject(AbstractSceneObject.generateObjectID(), this.whiteboard.layerMode.selectedLayer, "image", {
 			x: (50 - this.whiteboard.viewport.x) / this.whiteboard.viewport.zoom,
 			y: (50 - (this.whiteboard.viewport.y + (index * -50))) / this.whiteboard.viewport.zoom,
 			scale: 1 / this.whiteboard.viewport.zoom
@@ -1151,8 +1153,8 @@ class AbstractWhiteboard {
 		this.objects = []
 		/** @type {Map<number, Blob | null>} */
 		this.blobs = new Map()
-		this.selectedLayer = 0;
-		this.strictLayer = true;
+		/** @type {{ selectedLayer: number, visibility: 0 | 1 | 2, interactable: boolean }} */
+		this.layerMode = { selectedLayer: 0, visibility: 1, interactable: false };
 		this.connection = new Connection(this, true)
 		// Undo stack objects
 		this.shiftKeyDown = false
@@ -1184,6 +1186,9 @@ class AbstractWhiteboard {
 					focusedElement.selectionStart = focusedElement.selectionEnd = start + 1;
 				}
 				e.stopPropagation()
+			} else if (! document.querySelector('#settings-menu')?.classList.contains('hidden')) {
+				if (e.key == "Escape") document.querySelector('#settings-menu')?.classList.add('hidden');
+				e.stopPropagation();
 			}
 		}, { capture: true })
 		window.addEventListener("keydown", (e) => {
@@ -1303,11 +1308,11 @@ class AbstractWhiteboard {
 	 */
 	updateLayer(amount, addAndUpdate) {
 		var amountFixed = Math.round(Number(amount))
-		if (addAndUpdate) amountFixed += this.selectedLayer
-		this.selectedLayer = Math.max(Math.min(amountFixed, 9), -1);
+		if (addAndUpdate) amountFixed += this.layerMode.selectedLayer
+		this.layerMode.selectedLayer = Math.max(Math.min(amountFixed, 9), -1);
 		// Update display
 		var layerDisplay = document.querySelector("#layer-display")
-		if (addAndUpdate && layerDisplay instanceof HTMLInputElement) layerDisplay.valueAsNumber = whiteboard.selectedLayer;
+		if (addAndUpdate && layerDisplay instanceof HTMLInputElement) layerDisplay.valueAsNumber = whiteboard.layerMode.selectedLayer;
 	}
 	/**
 	 * @param {UndoStackItem} item
@@ -1383,7 +1388,7 @@ class Whiteboard2D extends AbstractWhiteboard {
 			if (this.selection != null && (e.key == "Backspace" || e.key == "Delete" || e.key == "a")) {
 				// Delete selection
 				this.doAction(new USIEraseObjects(this, this.selection.objects.map((v) => ({
-					layer: this.selectedLayer, typeID: v.getTypeID(), objectID: v.objectID, data: v.data, blob: this.blobs.get(v.objectID) ?? null
+					layer: this.layerMode.selectedLayer, typeID: v.getTypeID(), objectID: v.objectID, data: v.data, blob: this.blobs.get(v.objectID) ?? null
 				}))));
 				this.selection = null;
 				this.updateSelection();
@@ -1448,6 +1453,25 @@ class Whiteboard2D extends AbstractWhiteboard {
 				e.remove()
 			}, 3000)
 		}
+	}
+	zoomViewportToFill() {
+		const padding = 40;
+		var boundingBox = getBoundingBox(this.objects.map((v) => v.getBoundingRect(this.viewport)))
+		if (! (isFinite(boundingBox.x) && isFinite(boundingBox.y) && boundingBox.w > 0 && boundingBox.h > 0)) {
+			this.viewport.zoom = 1;
+			this.viewport.x = 0;
+			this.viewport.y = 0;
+			return;
+		}
+		// Fit zoom value to rect
+		var availableW = Math.max(1, window.innerWidth - padding * 2);
+		var availableH = Math.max(1, window.innerHeight - padding * 2);
+		var zoomW = availableW / boundingBox.w;
+		var zoomH = availableH / boundingBox.h;
+		this.viewport.zoom = Math.min(zoomW, zoomH);
+		// Center bounding box
+		this.viewport.x = (window.innerWidth / 2) - ((boundingBox.x + boundingBox.w/2) * this.viewport.zoom);
+		this.viewport.y = (window.innerHeight / 2) - ((boundingBox.y + boundingBox.h/2) * this.viewport.zoom);
 	}
 	updateSelection() {
 		const _viewport = this.viewport;
@@ -2087,15 +2111,15 @@ class SelectTouchMode extends TouchMode {
 		// Check all objects...
 		for (var i = this.touch.whiteboard.objects.length - 1; i >= 0; i--) {
 			var obj = this.touch.whiteboard.objects[i];
-			// ...except objects on another layer
-			if (this.touch.whiteboard.strictLayer && obj.layer != this.touch.whiteboard.selectedLayer) continue;
+			// ...except objects on another layer (when objects on other layers are not selectable)
+			if (obj.layer != this.touch.whiteboard.layerMode.selectedLayer && !this.touch.whiteboard.layerMode.interactable) continue;
 			// Check if the object collides with the selection rectangle
 			if (obj.colliderect(this.touch.whiteboard.viewport, rect)) {
 				// Toggle the object selection
 				if (selectedItems.has(obj)) selectedItems.delete(obj)
 				else selectedItems.add(obj)
 				// Tap to select should click on only one object: we do not need to check any more objects
-				break;
+				if (rect.w == 0 && rect.h == 0) break;
 			}
 		}
 		// Update whiteboard selection value
@@ -2140,8 +2164,8 @@ class EraseTouchMode extends TouchMode {
 		for (var i = 0; i < o.length; i++) {
 			// Don't erase if the object is unverified
 			if (! o[i].verified) continue;
-			// Don't erase if we are on another layer
-			if (this.touch.whiteboard.strictLayer && o[i].layer != this.touch.whiteboard.selectedLayer) continue;
+			// Don't erase if we are on another layer (when objects on other layers are not selectable)
+			if (o[i].layer != this.touch.whiteboard.layerMode.selectedLayer && !this.touch.whiteboard.layerMode.interactable) continue;
 			// Don't erase if this is an image (images can still be erased with the selection tool!)
 			if (o[i] instanceof ImageObject) continue;
 			// Check for collision
@@ -2371,8 +2395,8 @@ class USICreateObjects extends UndoStackItem {
 	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
 	do() {
 		for (var o of this.objects) {
-			this.whiteboard.add(AbstractSceneObject.createFromDataAndID(o.objectID, this.whiteboard.selectedLayer, o.typeID, o.data, this.whiteboard.getBlob.bind(this.whiteboard, o.objectID)));
-			this.whiteboard.connection.createObject(o.objectID, this.whiteboard.selectedLayer, o.typeID, o.data, o.blob);
+			this.whiteboard.add(AbstractSceneObject.createFromDataAndID(o.objectID, this.whiteboard.layerMode.selectedLayer, o.typeID, o.data, this.whiteboard.getBlob.bind(this.whiteboard, o.objectID)));
+			this.whiteboard.connection.createObject(o.objectID, this.whiteboard.layerMode.selectedLayer, o.typeID, o.data, o.blob);
 		}
 	}
 	invert() { return new USIEraseObjects(this.whiteboard, [...this.objects]) }
