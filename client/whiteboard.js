@@ -588,6 +588,8 @@ width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scal
 		canvas.lineWidth = 2
 		var originPos = viewport.getScreenPosFromStagePos(layout.boundingBox.x, layout.boundingBox.y)
 		canvas.strokeRect(originPos.x, originPos.y, layout.boundingBox.w * viewport.zoom, layout.boundingBox.h * viewport.zoom)
+		canvas.fillStyle = "#FFFA";
+		canvas.fillRect(originPos.x, originPos.y, layout.boundingBox.w * viewport.zoom, layout.boundingBox.h * viewport.zoom)
 		// Draw text
 		canvas.fillStyle = "black"
 		for (var textElement of layout.textElements) {
@@ -2083,7 +2085,7 @@ class SelectTouchMode extends TouchMode {
 			this.touch.whiteboard.selection.objects.forEach((v) => selectedItems.add(v))
 		}
 		// Check all objects...
-		for (var i = 0; i < this.touch.whiteboard.objects.length; i++) {
+		for (var i = this.touch.whiteboard.objects.length - 1; i >= 0; i--) {
 			var obj = this.touch.whiteboard.objects[i];
 			// ...except objects on another layer
 			if (this.touch.whiteboard.strictLayer && obj.layer != this.touch.whiteboard.selectedLayer) continue;
@@ -2092,6 +2094,8 @@ class SelectTouchMode extends TouchMode {
 				// Toggle the object selection
 				if (selectedItems.has(obj)) selectedItems.delete(obj)
 				else selectedItems.add(obj)
+				// Tap to select should click on only one object: we do not need to check any more objects
+				break;
 			}
 		}
 		// Update whiteboard selection value
@@ -2114,19 +2118,25 @@ class EraseTouchMode extends TouchMode {
 		super(touch)
 		// Erase around this position
 		var touchLoc = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y);
-		var rad = 10 / this.touch.whiteboard.viewport.zoom
-		this.eraseLine({
-			start: { x: touchLoc.x - rad, y: touchLoc.y - rad },
-			  end: { x: touchLoc.x + rad, y: touchLoc.y + rad }
-		})
-		this.eraseLine({
-			start: { x: touchLoc.x + rad, y: touchLoc.y - rad },
-			  end: { x: touchLoc.x - rad, y: touchLoc.y + rad }
-		})
+		this.erasePoint(touchLoc)
 	}
 	/** @param {Line} line */
 	eraseLine(line) {
-		var o = [...this.touch.whiteboard.objects]
+		this.erase((o) => o.collideline(this.touch.whiteboard.viewport, line))
+	}
+	/** @param {Point} point */
+	erasePoint(point) {
+		let erased = false;
+		this.erase((o) => {
+			if (erased) return false;
+			var collided = o.colliderect(this.touch.whiteboard.viewport, { x: point.x, y: point.y, w: 0, h: 0 })
+			if (collided) erased = true; // only erase one object
+			return collided;
+		})
+	}
+	/** @param {(object: SceneObject2D) => boolean} collider */
+	erase(collider) {
+		var o = [...this.touch.whiteboard.objects].reverse();
 		for (var i = 0; i < o.length; i++) {
 			// Don't erase if the object is unverified
 			if (! o[i].verified) continue;
@@ -2135,7 +2145,7 @@ class EraseTouchMode extends TouchMode {
 			// Don't erase if this is an image (images can still be erased with the selection tool!)
 			if (o[i] instanceof ImageObject) continue;
 			// Check for collision
-			if (! o[i].collideline(this.touch.whiteboard.viewport, line)) continue;
+			if (! collider(o[i])) continue;
 			// Erase the object
 			this.touch.whiteboard.doAction(new USIEraseObjects(this.touch.whiteboard, [{
 				typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data, blob: this.touch.whiteboard.blobs.get(o[i].objectID) ?? null
