@@ -25,7 +25,7 @@ var log = (() => {
  */
 function repr(o) {
 	if (typeof o == "string") {
-		return "\"" + o + "\""
+		return JSON.stringify(o)
 	}
 	if (typeof o == "number") {
 		return o.toString()
@@ -169,4 +169,45 @@ function pointsToPath(points) {
 		r += ` L ${points[i].x} ${points[i].y}`
 	}
 	return r
+}
+
+/**
+ * @template {any[]} T
+ * @template V
+ */
+class CacheMap {
+	/** @param {(...params: T) => V} func */
+	constructor(func, size = 10) {
+		/** @type {(...params: T) => V} */
+		this.func = func
+		/** @type {number} */
+		this.size = size
+		/** @type {Map<string, V>} */
+		this.items = new Map()
+	}
+	clear() {
+		this.items.clear()
+	}
+	/**
+	 * @param {string} param
+	 * @param {V} result
+	 */
+	addCachedValue(param, result) {
+		this.items.set(param, result)
+		if (this.items.size > this.size) {
+			this.items.delete(this.items.keys().next().value ?? "")
+		}
+	}
+	/**
+	 * @param {T} params
+	 * @returns {V}
+	 */
+	get(...params) {
+		var cacheKey = JSON.stringify(params)
+		var cachedValue = this.items.get(cacheKey)
+		if (cachedValue != undefined) return cachedValue
+		var value = this.func(...params)
+		this.addCachedValue(cacheKey, value)
+		return value;
+	}
 }

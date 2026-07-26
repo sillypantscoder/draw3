@@ -401,6 +401,7 @@ class ShapeObject extends SceneObject2D {
 }
 class TextObject extends SceneObject2D {
 	static typeID = "text"
+	static visualLayoutRenderingCache = new CacheMap(TextObject.createVisualLayout, 100)
 	/**
 	 * @param {number} id
 	 * @param {number} layer
@@ -411,9 +412,9 @@ class TextObject extends SceneObject2D {
 		/** @type {Point} */
 		this.pos = data.pos
 		/** @type {number} */
-		this.scale = data.scale
-		/** @type {number} */
 		this.width = data.width
+		/** @type {number} */
+		this.scale = data.scale
 		/** @type {string} */
 		this.text = data.text
 	}
@@ -431,14 +432,21 @@ class TextObject extends SceneObject2D {
 		this.width = Number(this.data.width);
 		this.editedTime = null
 	}
-	getVisualLayout() {
+	/**
+	 * @param {Point} pos
+	 * @param {number} width
+	 * @param {number} scale
+	 * @param {string} text
+	 * @returns {{ boundingBox: Rect, textElements: { text: string, x: number, y: number }[] }}
+	 */
+	static createVisualLayout(pos, width, scale, text) {
 		// Measure text
 		const padding = 5;
 		var canvas = new OffscreenCanvas(1, 1).getContext('2d') ?? (() => {
 			throw new Error("context is missing");
 		})();
 		/** @type {{ text: string, width: number, baseline: number, height: number }[]} */
-		var textLines = this.text.split("\n").flatMap((v) => {
+		var textLines = text.split("\n").flatMap((v) => {
 			canvas.font = `16px sans-serif`
 			// Wrap text into lines
 			if (v.trim().length == 0) return [""]
@@ -448,13 +456,13 @@ class TextObject extends SceneObject2D {
 			for (var i = 0; i < v.split(/(?=[ \t])/ig).length; ) {
 				var word = v.split(/(?=[ \t])/ig)[i];
 				var metrics = canvas.measureText(line + word);
-				if (metrics.width > this.width-(padding*2)) {
+				if (metrics.width > width-(padding*2)) {
 					if (line == "") {
 						// Wrap single word
 						for (var j = 0; j < word.length; j++) {
 							var letter = word[j];
 							var metrics = canvas.measureText(line + letter);
-							if (metrics.width > this.width-(padding*2)) {
+							if (metrics.width > width-(padding*2)) {
 								lines.push(line.trim());
 								line = "";
 							}
@@ -486,21 +494,25 @@ class TextObject extends SceneObject2D {
 		var totalTextHeight = textLines.reduce((a, b) => a + b.height, 0)
 		return {
 			boundingBox: {
-				x: this.pos.x,
-				y: this.pos.y,
-				w: this.width * this.scale,
-				h: (padding + totalTextHeight + padding) * this.scale
+				x: pos.x,
+				y: pos.y,
+				w: width * scale,
+				h: (padding + totalTextHeight + padding) * scale
 			},
 			textElements: textLines.map((v, i, l) => {
 				var previousElementHeight = l.slice(0, i).reduce((a, b) => a + b.height, 0)
-				var offsetHeight = (padding + previousElementHeight + v.baseline) * this.scale
+				var offsetHeight = (padding + previousElementHeight + v.baseline) * scale
 				return {
 					text: v.text,
-					x: this.pos.x + (padding * this.scale),
-					y: this.pos.y + offsetHeight
+					x: pos.x + (padding * scale),
+					y: pos.y + offsetHeight
 				}
 			})
 		}
+	}
+	/** @returns {{ boundingBox: Rect, textElements: { text: string, x: number, y: number }[] }} */
+	getVisualLayout() {
+		return TextObject.visualLayoutRenderingCache.get(this.pos, this.width, this.scale, this.text);
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -579,7 +591,8 @@ width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scal
 		// Draw text
 		canvas.fillStyle = "black"
 		for (var textElement of layout.textElements) {
-			canvas.font = `${viewport.zoom * this.scale * 16}px sans-serif`
+			var targetFont = `${Math.round(viewport.zoom * this.scale * 160) / 10}px sans-serif`;
+			if (canvas.font != targetFont) canvas.font = targetFont;
 			var pos = viewport.getScreenPosFromStagePos(textElement.x, textElement.y)
 			canvas.fillText(textElement.text, pos.x, pos.y)
 		}
