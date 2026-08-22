@@ -292,15 +292,17 @@ class ShapeObject extends SceneObject2D {
 	attachPoints = []
 	/** @param {Object<string, any>} data */
 	loadFromData(data) {
-		this.shapeID = data.shape;
+		if (this.shapeID != data.shape) {
+			this.shapeID = data.shape;
+			this.attachPoints = [
+				new AttachPoint(this, "start", () => this.start, (p) => p, (p) => this.start = p),
+				new AttachPoint(this, "end", () => this.end, (p) => p, (p) => this.end = p),
+				...this.getShapeConfig().getExtraAttachPoints(this)
+			]
+		}
 		this.start = data.start;
 		this.end = data.end;
 		this.color = data.color;
-		this.attachPoints = [
-			new AttachPoint(this, "start", () => this.start, (p) => p, (p) => this.start = p),
-			new AttachPoint(this, "end", () => this.end, (p) => p, (p) => this.end = p),
-			...this.getShapeConfig().getExtraAttachPoints(this)
-		]
 		this.loadAttachPoints(data.attachPoints);
 	}
 	/** @returns {Object<string, any>} */
@@ -903,7 +905,7 @@ class AttachPointMoveHandle extends Handle {
 	moveTo(x, y) {
 		// Snap to existing attach points
 		let targetPos = { x, y };
-		var attach_point = this.findAttachPoint(this.pos.x, this.pos.y, [this.srcObject, ...(this.point.otherPoint == null ? [] : [this.point.otherPoint])])
+		var attach_point = this.findAttachPoint(targetPos.x, targetPos.y, [this.srcObject, ...(this.point.otherPoint == null ? [] : [this.point.otherPoint])])
 		if (attach_point != null) targetPos = attach_point.getPos();
 		// Move handle
 		targetPos = this.point.moveTo(targetPos);
@@ -917,8 +919,7 @@ class AttachPointMoveHandle extends Handle {
 	finishMovement() {
 		super.finishMovement();
 		// Connect to attach point
-		let screenPos = this.viewport.getScreenPosFromStagePos(this.pos.x, this.pos.y)
-		var attach_point = this.findAttachPoint(screenPos.x, screenPos.y, [this.srcObject, ...(this.point.otherPoint == null ? [] : [this.point.otherPoint])])
+		var attach_point = this.findAttachPoint(this.pos.x, this.pos.y, [this.srcObject, ...(this.point.otherPoint == null ? [] : [this.point.otherPoint])])
 		if (attach_point != null) this.point.moveToAttachPoint(attach_point);
 	}
 }
@@ -1432,6 +1433,12 @@ class Whiteboard2D extends AbstractWhiteboard {
 				this.selection = null;
 				this.updateSelection();
 			}
+			if (e.key == "d") {
+				// Detach
+				let objectsToDetach = this.selection?.objects ?? [];
+				objectsToDetach.forEach((v) => v.attachPoints.forEach((w) => w.detach()));
+				this.objects.forEach((v) => v.attachPoints.filter((w) => objectsToDetach.some((x) => w.otherPoint?.objectID == x.objectID)).forEach((w) => w.detach()));
+			}
 			if (this.selection != null && (e.key == "Backspace" || e.key == "Delete" || e.key == "a")) {
 				// Delete selection
 				this.doAction(new USIEraseObjects(this, this.selection.objects.map((v) => ({
@@ -1709,6 +1716,10 @@ class AttachPoint {
 		this.srcObject.markAboutToEdit();
 		this.moveTo(otherPoint.getPos());
 		this.otherPoint = { objectID: otherPoint.srcObject.objectID, name: otherPoint.name }
+	}
+	detach() {
+		this.srcObject.markAboutToEdit();
+		this.otherPoint = null
 	}
 }
 /**
@@ -2360,7 +2371,6 @@ class HandleDraggingTouchMode extends TouchMode {
 	onMove(previousX, previousY, newX, newY) {
 		var mouseStagePos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(newX, newY)
 		this.handle.moveTo(mouseStagePos.x, mouseStagePos.y)
-		// this.handle.getAffectedObjects().forEach((v) => v.needsAttachmentUpdate = true)
 		this.touch.whiteboard.updateAllAttachedObjects()
 	}
 	/**

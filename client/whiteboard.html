@@ -177,9 +177,15 @@ textarea {
 	display: none;
 }
 .selection-window button {
-	padding: 1em;
+	padding: 0.5em 1em;
 	width: 100%;
 	font-size: 1em;
+	border: 1px solid white;
+	margin: 0.25em 0em;
+	background-color: var(--color);
+	&:active {
+		background-color: color-mix(in srgb, var(--color) 50%, black 50%);
+	}
 }
 		</style>
 	</head>
@@ -215,8 +221,9 @@ textarea {
 		<div class="menu selection-window">
 			<div><b id="selection-number">0</b> item<span id="selection-s">s</span> selected</div>
 			<div id="selection-color-container"></div>
-			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))" style="background-color: #CCC;">De-select</button></div>
-			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }))" style="background-color: #FCB;">Delete</button></div>
+			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }))" style="--color: #BCF;">Detach</button></div>
+			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))" style="--color: #CCC; padding: 1em;">De-select</button></div>
+			<div><button onclick="window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }))" style="--color: #FCB;">Delete</button></div>
 		</div>
 		<div class="modal" onmouseup="if (event.target == event.currentTarget) event.target.children[0].classList.add('hidden');">
 			<div class="menu hidden" id="settings-menu">
