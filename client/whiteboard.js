@@ -79,10 +79,8 @@ class AbstractSceneObject {
 		this.editRecord = null;
 		this.verified = false;
 	}
-	add() {}
 	verify() { this.verified = true; }
 	unverify() { this.verified = false; }
-	remove() {}
 	/** @param {Object<string, any>} data */
 	loadFromData(data) {}
 	/** @returns {Object<string, any>} */
@@ -114,6 +112,12 @@ class AbstractSceneObject {
 	getTypeID() { return this.constructor.typeID; }
 }
 class SceneObject2D extends AbstractSceneObject {
+	/** @type {AttachPoint[]} */
+	attachPoints = [];
+	/** @param {Object<string, any>} data */
+	loadAttachPoints(data) { Object.entries(data ?? {}).forEach((v) => this.attachPoints.filter((w) => v[0] == w.name).forEach((w) => w.otherPoint = v[1])) }
+	/** @returns {Object<string, any>} */
+	saveAttachPoints() { return Object.fromEntries(this.attachPoints.map((v) => [v.name, v.otherPoint])) }
 	/**
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
@@ -283,15 +287,21 @@ class ShapeObject extends SceneObject2D {
 	/** @type {Point} */
 	end = { x: 0, y: 0 };
 	color = "black";
+	/** @type {AttachPoint[]} */
+	attachPoints = [
+		new AttachPoint(this, "start", () => this.start, (p) => p, (p) => this.start = p),
+		new AttachPoint(this, "end", () => this.end, (p) => p, (p) => this.end = p)
+	]
 	/** @param {Object<string, any>} data */
 	loadFromData(data) {
 		this.shapeID = data.shape;
 		this.start = data.start;
 		this.end = data.end;
 		this.color = data.color;
+		this.loadAttachPoints(data.attachPoints);
 	}
 	/** @returns {Object<string, any>} */
-	saveToData() { return { shape: this.shapeID, start: this.start, end: this.end, color: this.color }; }
+	saveToData() { return { shape: this.shapeID, start: this.start, end: this.end, color: this.color, attachPoints: this.saveAttachPoints() }; }
 	/**
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
@@ -299,6 +309,16 @@ class ShapeObject extends SceneObject2D {
 	 * @param {boolean} onAnotherLayer
 	 */
 	draw(viewport, canvas, selected, onAnotherLayer) {
+		// console.log(this.start, this.end);
+		// if (this.start.x == this.end.x && this.start.y == this.end.y) {
+		// 	// Panic!
+		// 	this.markAboutToEdit();
+		// 	let dist = 1 / viewport.zoom;
+		// 	this.start.x -= dist;
+		// 	this.start.y -= dist;
+		// 	this.end.x += dist;
+		// 	this.end.y += dist;
+		// }
 		var path = drawingModes.filter((v) => v.type == "shape").filter((v) => v.shapeID == this.shapeID)[0].makeShape(this.start, this.end)
 		canvas.lineJoin = "round"
 		canvas.fillStyle = "none"
@@ -370,6 +390,9 @@ class ShapeObject extends SceneObject2D {
 			h: rect.h + (2 * padding / viewport.zoom)
 		}
 		for (var i = 0; i < path.length - 1; i++) {
+			if (path[i].x > checkRect.x && path[i].x < checkRect.x + checkRect.w && path[i].y > checkRect.y && path[i].y < checkRect.y + checkRect.h) {
+				return true
+			}
 			if (rectangleIntersectsLine(checkRect, { start: path[i], end: path[i + 1] })) {
 				return true
 			}
@@ -748,6 +771,10 @@ class Handle {
 		this.pos.x = x
 		this.pos.y = y
 	}
+	/** @returns {SceneObject2D[]} */
+	getAffectedObjects() {
+		return [];
+	}
 	finishMovement() {
 		this.isDragging = false;
 	}
@@ -781,6 +808,10 @@ class LinearMovementHandle extends Handle {
 			o.linearMove(dx, dy)
 		}
 	}
+	/** @returns {SceneObject2D[]} */
+	getAffectedObjects() {
+		return this.selection.objects;
+	}
 }
 class TextBoxWidthHandle extends Handle {
 	/**
@@ -808,6 +839,10 @@ class TextBoxWidthHandle extends Handle {
 		// Move rect
 		this.rect.w = this.selection.width * this.selection.scale;
 		this.rect.h = this.selection.getVisualLayout().boundingBox.h;
+	}
+	/** @returns {SceneObject2D[]} */
+	getAffectedObjects() {
+		return [this.selection];
 	}
 }
 class RescalingHandle extends Handle {
@@ -844,6 +879,53 @@ class RescalingHandle extends Handle {
 			this.rect.w = this.selection.loadedImage.width * this.selection.scale;
 			this.rect.h = this.selection.loadedImage.height * this.selection.scale;
 		}
+	}
+	/** @returns {SceneObject2D[]} */
+	getAffectedObjects() {
+		return [this.selection];
+	}
+}
+class AttachPointMoveHandle extends Handle {
+	/**
+	 * @param {Viewport} viewport
+	 * @param {SceneObject2D} srcObject
+	 * @param {AttachPoint} point
+	 * @param {(x: number, y: number, exclude: (SceneObject2D | { objectID: number, name: string })[]) => AttachPoint | null} findAttachPoint
+	 */
+	constructor(viewport, srcObject, point, findAttachPoint) {
+		super(viewport)
+		this.srcObject = srcObject
+		this.point = point
+		this.findAttachPoint = findAttachPoint
+		// Find handle position
+		this.pos = this.point.getPos()
+	}
+	/**
+	 * @param {number} x
+	 * @param {number} y
+	 */
+	moveTo(x, y) {
+		this.srcObject.markAboutToEdit();
+		// Snap to existing attach points
+		let targetPos = { x, y };
+		var attach_point = this.findAttachPoint(this.pos.x, this.pos.y, [this.srcObject, ...(this.point.otherPoint == null ? [] : [this.point.otherPoint])])
+		if (attach_point != null) targetPos = attach_point.getPos();
+		// Move handle
+		targetPos = this.point.moveTo(targetPos);
+		super.moveTo(targetPos.x, targetPos.y);
+		// TODO: Update rect
+	}
+	/** @returns {SceneObject2D[]} */
+	getAffectedObjects() {
+		return [this.srcObject];
+	}
+	finishMovement() {
+		super.finishMovement();
+		// Connect to attach point
+		let screenPos = this.viewport.getScreenPosFromStagePos(this.pos.x, this.pos.y)
+		var attach_point = this.findAttachPoint(screenPos.x, screenPos.y, [this.srcObject, ...(this.point.otherPoint == null ? [] : [this.point.otherPoint])])
+		if (attach_point != null) this.point.moveToAttachPoint(attach_point);
+		console.log(attach_point);
 	}
 }
 
@@ -1226,12 +1308,10 @@ class AbstractWhiteboard {
 	/** @param {ObjectType} obj */
 	add(obj) {
 		this.objects.push(obj)
-		obj.add()
 	}
 	/** @param {ObjectType} obj */
 	remove(obj) {
 		this.objects.splice(this.objects.indexOf(obj), 1)
-		obj.remove()
 	}
 	/** @param {number} objectID */
 	findObject(objectID) {
@@ -1485,9 +1565,53 @@ class Whiteboard2D extends AbstractWhiteboard {
 	getAllHandles() {
 		if (this.selection == null) return [];
 		if (this.selection.objects.length == 1) return [
+			...this.selection.objects[0].attachPoints.map(((o) => (v) => new AttachPointMoveHandle(this.viewport, o, v, (x, y, exclude) => this.findAttachPoint(x, y, exclude)))(this.selection.objects[0])),
 			new LinearMovementHandle(this.viewport, this.selection),
 			...this.selection.objects[0].getHandles(this.viewport, this.selection.boundingBox)
 		]; else return [new LinearMovementHandle(this.viewport, this.selection)]
+	}
+	/**
+	 * @param {SceneObject2D} movedObject
+	 */
+	updateAttachedObjects(movedObject) {
+		for (var attachPoint of movedObject.attachPoints) {
+			// Update other point, if there is one
+			if (attachPoint.otherPoint != null) {
+				// Search for other point
+				let otherPoint = this.findObjectSafe(attachPoint.otherPoint.objectID)?.attachPoints.find((v) => v.name == attachPoint.otherPoint?.name)
+				if (otherPoint != undefined) {
+					otherPoint.srcObject.markAboutToEdit();
+					otherPoint.moveTo(attachPoint.getPos())
+				}
+			}
+			// Find other attach points that reference this point
+			for (var o of this.objects) {
+				for (var otherPoint of o.attachPoints) {
+					if (otherPoint.otherPoint?.objectID == movedObject.objectID && otherPoint.otherPoint.name == attachPoint.name) {
+						o.markAboutToEdit();
+						otherPoint.moveTo(attachPoint.getPos())
+					}
+				}
+			}
+		}
+	}
+	/**
+	 * @param {number} x
+	 * @param {number} y
+	 * @param {(SceneObject2D | { objectID: number, name: string })[]} exclude
+	 */
+	findAttachPoint(x, y, exclude) {
+		var maxDistance = 15 / this.viewport.zoom
+		for (var o of this.objects) {
+			if (exclude.includes(o)) continue;
+			for (var attachPoint of o.attachPoints) {
+				if (exclude.some((v) => !(v instanceof SceneObject2D) && v.objectID == o.objectID && v.name == attachPoint.name)) continue;
+				if (exclude.some((v) => (v instanceof SceneObject2D) && v.objectID == attachPoint.otherPoint?.objectID)) continue;
+				var distance = dist(attachPoint.getPos(), { x, y })
+				if (distance < maxDistance) return attachPoint
+			}
+		}
+		return null
 	}
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
@@ -1548,6 +1672,42 @@ class Whiteboard2D extends AbstractWhiteboard {
 
 
 
+class AttachPoint {
+	/**
+	 * @param {SceneObject2D} srcObject
+	 * @param {string} name
+	 * @param {() => Point} getPos
+	 * @param {(pos: Point) => Point} getMovedToPos
+	 * @param {(pos: Point) => void} moveObjectTo
+	 */
+	constructor(srcObject, name, getPos, getMovedToPos, moveObjectTo) {
+		this.srcObject = srcObject
+		this.name = name
+		this.getPos = () => Object.assign({}, getPos())
+		this.getMovedToPos = getMovedToPos
+		this.moveObjectTo = moveObjectTo
+		/** @type {{ objectID: number, name: string } | null} */
+		this.otherPoint = null
+	}
+	/**
+	 * @param {Point} pos
+	 */
+	moveTo(pos) {
+		var currentPos = this.getPos();
+		var moveToPos = this.getMovedToPos(pos);
+		if (Math.abs(currentPos.x - moveToPos.x) + Math.abs(currentPos.y - moveToPos.y) < 0.00001) return currentPos;
+		// Move
+		this.moveObjectTo(moveToPos);
+		return this.getPos();
+	}
+	/**
+	 * @param {AttachPoint} otherPoint
+	 */
+	moveToAttachPoint(otherPoint) {
+		this.moveTo(otherPoint.getPos());
+		this.otherPoint = { objectID: otherPoint.srcObject.objectID, name: otherPoint.name }
+	}
+}
 /**
  * @typedef {{ icon: string } & ({ type: "drawing" } | { type: "shape", shapeID: string, makeShape: (start: Point, end: Point) => Point[] })} DrawingShape
  * @type {DrawingShape[]}
@@ -1666,9 +1826,7 @@ var selectedColor = "black";
 	}
 })();
 
-/**
- * @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType
- */
+/** @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType */
 class TrackedTouch {
 	/**
 	 * @param {WhiteboardType} whiteboard
@@ -1714,9 +1872,7 @@ class TrackedTouch {
 		return `TrackedTouch { x: ${this.x}; y: ${this.y}; mode: ${this.mode.toString()} }`
 	}
 }
-/**
- * @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType
- */
+/** @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType */
 class TouchMode {
 	/**
 	 * @param {TrackedTouch<WhiteboardType>} touch
@@ -1750,9 +1906,7 @@ class TouchMode {
 		return `TouchMode { broken }`
 	}
 }
-/**
- * @extends {TouchMode<Whiteboard2D>}
- */
+/** @extends {TouchMode<Whiteboard2D>} */
 class Draw2DTouchMode extends TouchMode {
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
@@ -1823,9 +1977,7 @@ class Draw2DTouchMode extends TouchMode {
 		return `DrawTouchMode { ${this.points.length} points }`
 	}
 }
-/**
- * @extends {TouchMode<Whiteboard2D>}
- */
+/** @extends {TouchMode<Whiteboard2D>} */
 class Draw2DShapeTouchMode extends TouchMode {
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
@@ -1834,15 +1986,24 @@ class Draw2DShapeTouchMode extends TouchMode {
 	 */
 	constructor(touch, color, drawing_mode) {
 		super(touch)
-		/** @type {Point} */
+		/** @type {{ pos: Point, attach_point: AttachPoint | null }} */
 		this.start = this.getSavedTouchPos()
-		/** @type {Point} */
+		/** @type {{ pos: Point, attach_point: AttachPoint | null }} */
 		this.end = this.getSavedTouchPos()
 		this.color = color
 		this.drawing_mode = drawing_mode
 	}
 	getSavedTouchPos() {
-		return this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y)
+		var stagePos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(this.touch.x, this.touch.y);
+		var attach_point = this.touch.whiteboard.findAttachPoint(stagePos.x, stagePos.y, [])
+		if (attach_point == null) return {
+			pos: stagePos,
+			attach_point: null
+		}
+		else return {
+			pos: attach_point.getPos(),
+			attach_point
+		}
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -1854,7 +2015,7 @@ class Draw2DShapeTouchMode extends TouchMode {
 		canvas.lineWidth = 5
 		canvas.globalAlpha = 1
 		// Get lines from drawing mode
-		var points = this.drawing_mode.makeShape(this.start, this.end)
+		var points = this.drawing_mode.makeShape(this.start.pos, this.end.pos)
 		// Draw lines
 		canvas.beginPath()
 		let drawPos = viewport.getScreenPosFromStagePos(points[0].x, points[0].y); canvas.moveTo(drawPos.x, drawPos.y);
@@ -1878,15 +2039,19 @@ class Draw2DShapeTouchMode extends TouchMode {
 	 */
 	onEnd(previousX, previousY) {
 		// Add drawing to screen
-		if (dist(this.start, this.end) > 3 / this.touch.whiteboard.viewport.zoom) {
+		if (dist(this.start.pos, this.end.pos) > 3 / this.touch.whiteboard.viewport.zoom) {
 			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
 				typeID: "shape",
 				objectID: AbstractSceneObject.generateObjectID(),
 				data: {
 					"shape": this.drawing_mode.shapeID,
-					"start": this.start,
-					"end": this.end,
-					"color": this.color
+					"start": this.start.pos,
+					"end": this.end.pos,
+					"color": this.color,
+					"attachPoints": {
+						"start": this.start.attach_point == null ? null : { objectID: this.start.attach_point.srcObject.objectID, name: this.start.attach_point.name },
+						"end": this.end.attach_point == null ? null : { objectID: this.end.attach_point.srcObject.objectID, name: this.end.attach_point.name }
+					}
 				},
 				blob: null
 			}]))
@@ -1896,9 +2061,7 @@ class Draw2DShapeTouchMode extends TouchMode {
 		return `Draw2DShapeTouchMode { shapeID: ${this.drawing_mode.shapeID}, start: ${JSON.stringify(this.start)}, end: ${JSON.stringify(this.end)} }`
 	}
 }
-/**
- * @extends {TouchMode<Whiteboard2D>}
- */
+/** @extends {TouchMode<Whiteboard2D>} */
 class TextTouchMode extends TouchMode {
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
@@ -1985,9 +2148,7 @@ class TextTouchMode extends TouchMode {
 		return `TextTouchMode { }`
 	}
 }
-/**
- * @extends {TouchMode<Whiteboard2D>}
- */
+/** @extends {TouchMode<Whiteboard2D>} */
 class PanTouchMode extends TouchMode {
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
@@ -2024,9 +2185,7 @@ class PanTouchMode extends TouchMode {
 		return `PanTouchMode {}`
 	}
 }
-/**
- * @extends {TouchMode<Whiteboard2D>}
- */
+/** @extends {TouchMode<Whiteboard2D>} */
 class SelectTouchMode extends TouchMode {
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
@@ -2110,9 +2269,7 @@ class SelectTouchMode extends TouchMode {
 		return `SelectTouchMode { start: ${this.startPos.x}, ${this.startPos.y}, end: ${this.endPos.x}, ${this.endPos.y} }`
 	}
 }
-/**
- * @extends {TouchMode<Whiteboard2D>}
- */
+/** @extends {TouchMode<Whiteboard2D>} */
 class EraseTouchMode extends TouchMode {
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
@@ -2171,9 +2328,7 @@ class EraseTouchMode extends TouchMode {
 		return `EraseTouchMode {}`
 	}
 }
-/**
- * @extends {TouchMode<Whiteboard2D>}
- */
+/** @extends {TouchMode<Whiteboard2D>} */
 class HandleDraggingTouchMode extends TouchMode {
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch
@@ -2193,6 +2348,7 @@ class HandleDraggingTouchMode extends TouchMode {
 	onMove(previousX, previousY, newX, newY) {
 		var mouseStagePos = this.touch.whiteboard.viewport.getStagePosFromScreenPos(newX, newY)
 		this.handle.moveTo(mouseStagePos.x, mouseStagePos.y)
+		this.handle.getAffectedObjects().forEach((v) => this.touch.whiteboard.updateAttachedObjects(v))
 	}
 	/**
 	 * @param {number} previousX
@@ -2215,9 +2371,7 @@ class HandleDraggingTouchMode extends TouchMode {
 	}
 }
 
-/**
- * @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType
- */
+/** @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType */
 class TouchHandler {
 	/** @param {WhiteboardType} whiteboard */
 	constructor(whiteboard) {
