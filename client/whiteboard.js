@@ -68,27 +68,29 @@ class AbstractSceneObject {
 	/**
 	 * @param {number} id
 	 * @param {number} layer
-	 * @param {Object<string, any>} data
+	 * @param {() => Promise<Blob | null>} blobGetter
 	 */
-	constructor(id, layer, data) {
+	constructor(id, layer, blobGetter) {
 		this.objectID = id
 		this.layer = layer
-		this.data = data
-		this._originalData = structuredClone(this.data)
 		/** @type {() => Promise<Blob | null>} */
-		this.blobGetter = ((_this) => function delayBlobGetter() { return new Promise((resolve) => requestAnimationFrame(() => {
-			if (_this.blobGetter.name == "delayBlobGetter") resolve(null);
-			else _this.blobGetter().then(resolve)
-		}))})(this)
-		/** @type {number | null} */
-		this.editedTime = null;
+		this.blobGetter = blobGetter;
+		/** @type {{ timestamp: number, originalData: Object<string, any> } | null} */
+		this.editRecord = null;
 		this.verified = false;
 	}
 	add() {}
 	verify() { this.verified = true; }
 	unverify() { this.verified = false; }
-	reload() {}
 	remove() {}
+	/** @param {Object<string, any>} data */
+	loadFromData(data) {}
+	/** @returns {Object<string, any>} */
+	saveToData() { return {}; }
+	markAboutToEdit() {
+		if (this.editRecord != null) return;
+		this.editRecord = { timestamp: Date.now(), originalData: this.saveToData() }
+	}
 	/**
 	 * Creates an object given its type ID, object ID, and data. Does not add the object to the screen.
 	 * @param {number} objectID
@@ -100,8 +102,8 @@ class AbstractSceneObject {
 	 */
 	static createFromDataAndID(objectID, layer, typeID, data, blobGetter) {
 		var objClass = objectTypes[typeID]
-		var o = new objClass(objectID, layer, data)
-		o.blobGetter = blobGetter
+		var o = new objClass(objectID, layer, blobGetter)
+		o.loadFromData(data)
 		return o
 	}
 	static generateObjectID() {
@@ -145,7 +147,7 @@ class SceneObject2D extends AbstractSceneObject {
 	 * @param {number} dy
 	 */
 	linearMove(dx, dy) {
-		this.editedTime = Date.now()
+		this.markAboutToEdit()
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -156,21 +158,16 @@ class SceneObject2D extends AbstractSceneObject {
 }
 class DrawingObject extends SceneObject2D {
 	static typeID = "drawing"
-	/**
-	 * @param {number} id
-	 * @param {number} layer
-	 * @param {Object<string, any>} data
-	 */
-	constructor(id, layer, data) {
-		super(id, layer, data)
-		/** @type {Point[]} */
-		this.path = typeof data.d == "string" ? DrawingObject.parsePointList(data.d) : data.d;
+	/** @type {Point[]} */
+	path = [];
+	color = "black";
+	/** @param {Object<string, any>} data */
+	loadFromData(data) {
+		this.path = DrawingObject.parsePointList(data.d);
 		this.color = data.color;
 	}
-	reload() {
-		this.path = typeof this.data.d == "string" ? DrawingObject.parsePointList(this.data.d) : this.data.d;
-		this.color = this.data.color;
-	}
+	/** @returns {Object<string, any>} */
+	saveToData() { return { d: DrawingObject.savePointList(this.path), color: this.color }; }
 	/**
 	 * @param {string} data
 	 * @returns {Point[]}
@@ -270,37 +267,31 @@ class DrawingObject extends SceneObject2D {
 	 * @param {number} dy
 	 */
 	linearMove(dx, dy) {
+		super.linearMove(dx, dy);
 		for (var pos of this.path) {
 			pos.x += dx;
 			pos.y += dy;
 		}
-		this.data.d = DrawingObject.savePointList(this.path)
-		super.linearMove(dx, dy);
 	}
 }
 class ShapeObject extends SceneObject2D {
 	static typeID = "shape"
-	/**
-	 * @param {number} id
-	 * @param {number} layer
-	 * @param {Object<string, any>} data
-	 */
-	constructor(id, layer, data) {
-		super(id, layer, data)
-		/** @type {string} */
+	/** @type {string} */
+	shapeID = "";
+	/** @type {Point} */
+	start = { x: 0, y: 0 };
+	/** @type {Point} */
+	end = { x: 0, y: 0 };
+	color = "black";
+	/** @param {Object<string, any>} data */
+	loadFromData(data) {
 		this.shapeID = data.shape;
-		/** @type {Point} */
 		this.start = data.start;
-		/** @type {Point} */
 		this.end = data.end;
 		this.color = data.color;
 	}
-	reload() {
-		this.shapeID = this.data.shape;
-		this.start = this.data.start;
-		this.end = this.data.end;
-		this.color = this.data.color;
-	}
+	/** @returns {Object<string, any>} */
+	saveToData() { return { shape: this.shapeID, start: this.start, end: this.end, color: this.color }; }
 	/**
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
@@ -390,48 +381,33 @@ class ShapeObject extends SceneObject2D {
 	 * @param {number} dy
 	 */
 	linearMove(dx, dy) {
+		super.linearMove(dx, dy);
 		this.start.x += dx
 		this.start.y += dy
-		this.data.start = this.start
 		this.end.x += dx
 		this.end.y += dy
-		this.data.end = this.end
-		super.linearMove(dx, dy);
 	}
 }
 class TextObject extends SceneObject2D {
 	static typeID = "text"
 	static visualLayoutRenderingCache = new CacheMap(TextObject.createVisualLayout, 100)
-	/**
-	 * @param {number} id
-	 * @param {number} layer
-	 * @param {Object<string, any>} data
-	 */
-	constructor(id, layer, data) {
-		super(id, layer, data)
-		/** @type {Point} */
-		this.pos = data.pos
-		/** @type {number} */
-		this.width = data.width
-		/** @type {number} */
-		this.scale = data.scale
-		/** @type {string} */
-		this.text = data.text
+	/** @type {Point} */
+	pos = { x: 0, y: 0 }
+	/** @type {number} */
+	width = 1
+	/** @type {number} */
+	scale = 1
+	/** @type {string} */
+	text = "<ERROR>"
+	/** @param {Object<string, any>} data */
+	loadFromData(data) {
+		this.pos = data.pos;
+		this.width = Number(data.width);
+		this.scale = Number(data.scale);
+		this.text = String(data.text);
 	}
-	add() {
-		super.add()
-	}
-	verify() {
-		super.verify()
-	}
-	unverify() {
-		super.unverify()
-	}
-	reload() {
-		this.pos = this.data.pos
-		this.width = Number(this.data.width);
-		this.editedTime = null
-	}
+	/** @returns {Object<string, any>} */
+	saveToData() { return { pos: this.pos, width: this.width, scale: this.scale, text: this.text }; }
 	/**
 	 * @param {Point} pos
 	 * @param {number} width
@@ -553,9 +529,8 @@ width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scal
 		}, false)
 		e.addEventListener("input", () => {
 			// Save new text
+			this.markAboutToEdit();
 			this.text = e.value
-			this.data.text = this.text
-			if (this.editedTime == null) this.editedTime = Date.now()
 			// Update textbox size
 			updateBoxSize();
 		})
@@ -599,9 +574,6 @@ width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scal
 			canvas.fillText(textElement.text, pos.x, pos.y)
 		}
 	}
-	remove() {
-		super.remove()
-	}
 	/**
 	 * @param {Viewport} viewport
 	 * @returns {Rect}
@@ -629,10 +601,9 @@ width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scal
 	 * @param {number} dy
 	 */
 	linearMove(dx, dy) {
+		super.linearMove(dx, dy);
 		this.pos.x += dx;
 		this.pos.y += dy;
-		this.data.pos = this.pos
-		super.linearMove(dx, dy);
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -643,25 +614,35 @@ width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scal
 }
 class ImageObject extends SceneObject2D {
 	static typeID = "image"
-	/**
-	 * @param {number} id
-	 * @param {number} layer
-	 * @param {Object<string, any>} data
-	 */
-	constructor(id, layer, data) {
-		super(id, layer, data)
-		/** @type {Point} */
-		this.pos = { x: data.x, y: data.y }
-		/** @type {number} */
-		this.scale = data.scale
-		/** @type {ImageBitmap | null} */
-		this.loadedImage = null
-		// TODO: Create test image to avoid all this null nonsense
-		this.reload()
-	}
-	reload() {
-		this.pos = { x: this.data.x, y: this.data.y }
-		this.scale = this.data.scale
+	/** @type {Point} */
+	pos = { x: 0, y: 0 }
+	/** @type {number} */
+	scale = 1
+	/** @type {ImageBitmap | OffscreenCanvas} */
+	loadedImage = (() => {
+		var canvas = new OffscreenCanvas(100, 100);
+		var ctx = canvas.getContext('2d');
+		if (ctx != null) {
+			// Gradient
+			let gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 100);
+			gradient.addColorStop(0, "#0003");
+			gradient.addColorStop(1, "#0000");
+			ctx.fillStyle = gradient;
+			ctx.beginPath()
+			ctx.arc(0, 0, 100, 0, Math.PI*2)
+			ctx.fill();
+			// Text
+			ctx.fillStyle = "white";
+			ctx.textAlign = "left";
+			ctx.textBaseline = "top";
+			ctx.fillText("Loading Image...", 5, 5)
+		}
+		return canvas;
+	})();
+	/** @param {Object<string, any>} data */
+	loadFromData(data) {
+		this.pos = data.pos;
+		this.scale = Number(data.scale);
 		// Load Image
 		this.blobGetter().then(async (blob) => {
 			if (blob == null) {
@@ -673,6 +654,8 @@ class ImageObject extends SceneObject2D {
 			this.loadedImage = bitmap;
 		})
 	}
+	/** @returns {Object<string, any>} */
+	saveToData() { return { pos: this.pos, scale: this.scale }; }
 	/**
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
@@ -682,21 +665,12 @@ class ImageObject extends SceneObject2D {
 	draw(viewport, canvas, selected, onAnotherLayer) {
 		// Find position
 		var imagePos = viewport.getScreenPosFromStagePos(this.pos.x, this.pos.y)
-		var width = (this.loadedImage?.width ?? 50) * this.scale * viewport.zoom
-		var height = (this.loadedImage?.height ?? 50) * this.scale * viewport.zoom
+		var width = this.loadedImage.width * this.scale * viewport.zoom
+		var height = this.loadedImage.height * this.scale * viewport.zoom
 		// Draw image onto canvas
-		if (this.loadedImage != null) {
-			// Draw image
-			canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
-			canvas.drawImage(this.loadedImage, imagePos.x, imagePos.y, width, height)
-			// TODO: Cache resized images!
-		} else {
-			// fallback :(
-			canvas.fillStyle = "black"
-			canvas.strokeStyle = "none"
-			canvas.globalAlpha = 0.5 * (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
-			canvas.fillRect(imagePos.x, imagePos.y, width, height)
-		}
+		canvas.globalAlpha = (this.verified ? 1 : 0.5) * (onAnotherLayer ? 0.25 : 1)
+		canvas.drawImage(this.loadedImage, imagePos.x, imagePos.y, width, height)
+		// TODO: Cache resized images!
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -706,8 +680,8 @@ class ImageObject extends SceneObject2D {
 		return {
 			x: this.pos.x,
 			y: this.pos.y,
-			w: (this.loadedImage?.width ?? 50) * this.scale,
-			h: (this.loadedImage?.height ?? 50) * this.scale
+			w: this.loadedImage.width * this.scale,
+			h: this.loadedImage.height * this.scale
 		}
 	}
 	/**
@@ -715,7 +689,7 @@ class ImageObject extends SceneObject2D {
 	 * @param {Line} line
 	 */
 	collideline(viewport, line) {
-		var stageSize = { x: (this.loadedImage?.width ?? 50) * this.scale, y: (this.loadedImage?.height ?? 50) * this.scale }
+		var stageSize = { x: this.loadedImage.width * this.scale, y: this.loadedImage.height * this.scale }
 		return rectangleIntersectsLine({ x: this.pos.x, y: this.pos.y, w: stageSize.x, h: stageSize.y }, line)
 	}
 	/**
@@ -723,7 +697,7 @@ class ImageObject extends SceneObject2D {
 	 * @param {Rect} rect
 	 */
 	colliderect(viewport, rect) {
-		var stageSize = { x: (this.loadedImage?.width ?? 50) * this.scale, y: (this.loadedImage?.height ?? 50) * this.scale }
+		var stageSize = { x: this.loadedImage.width * this.scale, y: this.loadedImage.height * this.scale }
 		// stagePos = this.pos
 		return rect.x <= this.pos.x + stageSize.x && rect.x + rect.w >= this.pos.x && rect.y <= this.pos.y + stageSize.y && rect.y + rect.h >= this.pos.y
 	}
@@ -732,11 +706,9 @@ class ImageObject extends SceneObject2D {
 	 * @param {number} dy
 	 */
 	linearMove(dx, dy) {
+		super.linearMove(dx, dy);
 		this.pos.x += dx;
 		this.pos.y += dy;
-		this.data.x = this.pos.x
-		this.data.y = this.pos.y
-		super.linearMove(dx, dy);
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -831,8 +803,8 @@ class TextBoxWidthHandle extends Handle {
 	moveTo(x, y) {
 		this.pos.x = Math.max(x, this.rect.x + 30);
 		// Move object
+		this.selection.markAboutToEdit();
 		this.selection.width = (this.pos.x - this.rect.x) / this.selection.scale;
-		this.selection.data.width = this.selection.width;
 		// Move rect
 		this.rect.w = this.selection.width * this.selection.scale;
 		this.rect.h = this.selection.getVisualLayout().boundingBox.h;
@@ -861,17 +833,16 @@ class RescalingHandle extends Handle {
 		var scaleFactor = (x - this.rect.x) / this.rect.w;
 		this.pos.y = this.rect.y + (scaleFactor * (this.pos.y - this.rect.y))
 		// Move object
+		this.selection.markAboutToEdit();
 		this.selection.scale *= scaleFactor;
-		this.selection.data.scale = this.selection.scale;
 		if (this.selection instanceof TextObject) {
 			// Move rect
 			this.rect.w = this.selection.width * this.selection.scale;
 			this.rect.h = this.selection.getVisualLayout().boundingBox.h;
 		} else {
-			this.selection.editedTime = Date.now()
 			// Move rect
-			this.rect.w = (this.selection.loadedImage?.width ?? 50) * this.selection.scale;
-			this.rect.h = (this.selection.loadedImage?.height ?? 50) * this.selection.scale;
+			this.rect.w = this.selection.loadedImage.width * this.selection.scale;
+			this.rect.h = this.selection.loadedImage.height * this.selection.scale;
 		}
 	}
 }
@@ -985,17 +956,16 @@ class Renderer2D {
 		for (var i = 0; i < this.whiteboard.objects.length; i++) {
 			var obj = this.whiteboard.objects[i];
 			// Is edited?
-			if (obj.editedTime == null) continue;
-			var timeDelta = Date.now() - obj.editedTime;
+			if (obj.editRecord == null) continue;
+			var timeDelta = Date.now() - obj.editRecord.timestamp;
 			if (timeDelta > 500) {
 				objectEdits.push({
 					objectID: obj.objectID,
-					previousData: obj._originalData,
-					data: obj.data
+					previousData: obj.editRecord.originalData,
+					data: obj.saveToData()
 				})
 				// Reset object
-				obj.editedTime = null
-				obj._originalData = structuredClone(obj.data)
+				obj.editRecord = null
 			}
 		}
 		if (objectEdits.length > 0) {
@@ -1013,7 +983,7 @@ class Renderer2D {
 }
 class Connection {
 	/**
-	 * @param {AbstractWhiteboard<?, ?>} whiteboard
+	 * @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard
 	 * @param {boolean} first
 	 */
 	constructor(whiteboard, first) {
@@ -1062,15 +1032,14 @@ class Connection {
 		} else if (message.type == "edit_object") {
 			// Find object
 			var obj = this.whiteboard.findObjectSafe(message.objectID)
-			// Remove
+			// Remove cached blob (if necessary)
+			if (message.blobModified) this.whiteboard.blobs.delete(message.objectID)
+			// Update data in object
 			if (obj == undefined) {
 				console.error("Can't edit nonexistent object with ID:", message.objectID)
 			} else {
-				obj.data = message.newData
-				obj.reload()
+				obj.loadFromData(message.newData)
 			}
-			// Refresh blobs
-			if (message.blobModified) this.whiteboard.blobs.delete(message.objectID)
 		} else {
 			console.error("Got mysterious message from server:", message)
 		}
@@ -1392,7 +1361,7 @@ class Whiteboard2D extends AbstractWhiteboard {
 			if (this.selection != null && (e.key == "Backspace" || e.key == "Delete" || e.key == "a")) {
 				// Delete selection
 				this.doAction(new USIEraseObjects(this, this.selection.objects.map((v) => ({
-					layer: this.layerMode.selectedLayer, typeID: v.getTypeID(), objectID: v.objectID, data: v.data, blob: this.blobs.get(v.objectID) ?? null
+					layer: this.layerMode.selectedLayer, typeID: v.getTypeID(), objectID: v.objectID, data: v.saveToData(), blob: this.blobs.get(v.objectID) ?? null
 				}))));
 				this.selection = null;
 				this.updateSelection();
@@ -1510,7 +1479,7 @@ class Whiteboard2D extends AbstractWhiteboard {
 		// update colors in window
 		var colors = document.querySelector("#selection-color-container")
 		if (colors == null) throw new Error("#selection-color-container is missing")
-		if (this.selection == null || (this.selection?.objects.filter((v) => ! Object.keys(v.data).includes("color")).length ?? 0) >= 1) colors.classList.add("inactive");
+		if (this.selection == null || (this.selection?.objects.filter((v) => ! Object.keys(v.saveToData()).includes("color")).length ?? 0) >= 1) colors.classList.add("inactive");
 		else colors.classList.remove("inactive");
 	}
 	getAllHandles() {
@@ -1687,10 +1656,9 @@ var selectedColor = "black";
 			setTimeout(() => {
 				button.classList.remove("menu-option-selected")
 			}, 1000);
-			whiteboard.selection?.objects.filter((v) => Object.keys(v.data).includes("color")).forEach((v) => {
-				v.data.color = color;
-				v.editedTime = Date.now();
-				v.reload();
+			whiteboard.selection?.objects.filter((v) => Object.keys(v.saveToData()).includes("color")).forEach((v) => {
+				v.markAboutToEdit();
+				v.loadFromData(Object.assign(v.saveToData(), { color }));
 			});
 		}).bind(null, color));
 		// Wrap lines
@@ -1699,7 +1667,7 @@ var selectedColor = "black";
 })();
 
 /**
- * @template {AbstractWhiteboard<?, ?>} WhiteboardType
+ * @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType
  */
 class TrackedTouch {
 	/**
@@ -1747,7 +1715,7 @@ class TrackedTouch {
 	}
 }
 /**
- * @template {AbstractWhiteboard<?, ?>} WhiteboardType
+ * @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType
  */
 class TouchMode {
 	/**
@@ -2183,7 +2151,7 @@ class EraseTouchMode extends TouchMode {
 			if (! collider(o[i])) continue;
 			// Erase the object
 			this.touch.whiteboard.doAction(new USIEraseObjects(this.touch.whiteboard, [{
-				typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].data, blob: this.touch.whiteboard.blobs.get(o[i].objectID) ?? null
+				typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].saveToData(), blob: this.touch.whiteboard.blobs.get(o[i].objectID) ?? null
 			}]))
 		}
 	}
@@ -2248,7 +2216,7 @@ class HandleDraggingTouchMode extends TouchMode {
 }
 
 /**
- * @template {AbstractWhiteboard<?, ?>} WhiteboardType
+ * @template {AbstractWhiteboard<?, AbstractSceneObject>} WhiteboardType
  */
 class TouchHandler {
 	/** @param {WhiteboardType} whiteboard */
@@ -2384,7 +2352,7 @@ class TouchHandler {
 }
 
 class UndoStackItem {
-	/** @param {AbstractWhiteboard<?, ?>} whiteboard */
+	/** @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard */
 	constructor(whiteboard) { this.whiteboard = whiteboard; }
 	do() { throw new Error(`"UndoStackItem" is an abstract class, "do" must be overridden`); }
 	/** @returns {UndoStackItem} */
@@ -2392,7 +2360,7 @@ class UndoStackItem {
 }
 class DummyUndoStackItem extends UndoStackItem {
 	/**
-	 * @param {AbstractWhiteboard<?, ?>} whiteboard
+	 * @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard
 	 * @param {number} n
 	 * @param {boolean} inverted
 	 */
@@ -2404,7 +2372,7 @@ class DummyUndoStackItem extends UndoStackItem {
 }
 class USICreateObjects extends UndoStackItem {
 	/**
-	 * @param {AbstractWhiteboard<?, ?>} whiteboard
+	 * @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard
 	 * @param {{ typeID: string, objectID: number, data: Object, blob: Blob | null }[]} objects
 	 */
 	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
@@ -2418,7 +2386,7 @@ class USICreateObjects extends UndoStackItem {
 }
 class USIEraseObjects extends UndoStackItem {
 	/**
-	 * @param {AbstractWhiteboard<?, ?>} whiteboard
+	 * @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard
 	 * @param {{ typeID: string, objectID: number, data: Object, blob: Blob | null }[]} objects
 	 */
 	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
@@ -2432,15 +2400,14 @@ class USIEraseObjects extends UndoStackItem {
 }
 class USIEditObjects extends UndoStackItem {
 	/**
-	 * @param {AbstractWhiteboard<?, ?>} whiteboard
+	 * @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard
 	 * @param {{ objectID: number, previousData: Object, data: Object }[]} objects
 	 */
 	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
 	do() {
 		for (var o of this.objects) {
 			var realObj = this.whiteboard.findObject(o.objectID);
-			realObj.data = o.data;
-			realObj.reload();
+			realObj.loadFromData(o.data);
 			this.whiteboard.connection.editObject(o.objectID, o.data);
 			if (this.whiteboard instanceof Whiteboard2D) this.whiteboard.updateSelection();
 		}
