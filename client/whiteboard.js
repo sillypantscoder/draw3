@@ -1259,8 +1259,8 @@ class AbstractWhiteboard {
 		}, { capture: true })
 		window.addEventListener("keydown", (e) => {
 			// Layer shortcuts
-			if (e.key == "ArrowLeft") this.updateLayer(-1, true)
-			if (e.key == "ArrowRight") this.updateLayer(1, true)
+			if (e.key == "ArrowDown") this.updateLayer(-1, true)
+			if (e.key == "ArrowUp") this.updateLayer(1, true)
 			// Undo/redo
 			if (e.ctrlKey) {
 				if (e.key == "z") this.undo()
@@ -1842,8 +1842,7 @@ var drawingModes = [
 var selectedDrawingMode = 0;
 (function makeDrawingModeButtons() {
 	// Get container
-	var modeContainer = document.querySelector("#drawing_mode_select")
-	if (modeContainer == null) throw new Error("Drawing mode selector container is missing!")
+	var modeContainer = document.querySelector("#drawing_mode_select") ?? (() => { throw new Error("Drawing mode selector container is missing!"); })();
 	// if (! (modeContainer instanceof HTMLElement)) throw new Error("Main container is not HTML!")
 	for (var i = 0; i < drawingModes.length; i++) {
 		let button = modeContainer.appendChild(document.createElement("div"))
@@ -1861,6 +1860,12 @@ var selectedDrawingMode = 0;
 			button.classList.add("menu-option-selected");
 		}).bind(null, i));
 	}
+	window.addEventListener("keydown", (e) => {
+		if (["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].includes(e.key)) {
+			var n = Number(e.key);
+			if (n > 0 && n-1 < drawingModes.length) modeContainer.children[n-1].dispatchEvent(new MouseEvent("mousedown"));
+		}
+	})
 })();
 var allColors = ["black", "red", "orange", "yellow", "#cc1", "green", "lime", "cyan", "blue", "purple", "#80f", "magenta", "gray", "brown"];
 var selectedColor = "black";
