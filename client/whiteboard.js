@@ -294,11 +294,7 @@ class ShapeObject extends SceneObject2D {
 	loadFromData(data) {
 		if (this.shapeID != data.shape) {
 			this.shapeID = data.shape;
-			this.attachPoints = [
-				new AttachPoint(this, "start", () => this.start, (p) => p, (p) => this.start = p),
-				new AttachPoint(this, "end", () => this.end, (p) => p, (p) => this.end = p),
-				...this.getShapeConfig().getExtraAttachPoints(this)
-			]
+			this.attachPoints = this.getShapeConfig().getAttachPoints(this)
 		}
 		this.start = data.start;
 		this.end = data.end;
@@ -1587,7 +1583,8 @@ class Whiteboard2D extends AbstractWhiteboard {
 		if (this.selection == null) return [];
 		if (this.selection.objects.length == 1) return [
 			new LinearMovementHandle(this.viewport, this.selection),
-			...this.selection.objects[0].attachPoints.map(((o) => (v) => new AttachPointMoveHandle(this.viewport, o, v, (x, y, exclude) => this.findAttachPoint(x, y, exclude)))(this.selection.objects[0])),
+			...this.selection.objects[0].attachPoints.filter((v) => v.showHandle)
+				.map(((o) => (v) => new AttachPointMoveHandle(this.viewport, o, v, (x, y, exclude) => this.findAttachPoint(x, y, exclude)))(this.selection.objects[0])),
 			...this.selection.objects[0].getHandles(this.viewport, this.selection.boundingBox)
 		]; else return [new LinearMovementHandle(this.viewport, this.selection)]
 	}
@@ -1716,13 +1713,15 @@ class AttachPoint {
 	 * @param {() => Point} getPos
 	 * @param {(pos: Point) => Point} getMovedToPos
 	 * @param {(pos: Point) => void} moveObjectTo
+	 * @param {boolean} showHandle
 	 */
-	constructor(srcObject, name, getPos, getMovedToPos, moveObjectTo) {
+	constructor(srcObject, name, getPos, getMovedToPos, moveObjectTo, showHandle = true) {
 		this.srcObject = srcObject
 		this.name = name
 		this.getPos = () => Object.assign({}, getPos())
 		this.getMovedToPos = getMovedToPos
 		this.moveObjectTo = moveObjectTo
+		this.showHandle = showHandle
 		/** @type {{ objectID: number, name: string } | null} */
 		this.otherPoint = null
 	}
@@ -1759,7 +1758,7 @@ class AttachPoint {
 	}
 }
 /**
- * @typedef {{ icon: string } & ({ type: "drawing" } | { type: "shape", shapeID: string, makeShape: (start: Point, end: Point) => Point[], getExtraAttachPoints: (obj: ShapeObject) => AttachPoint[] })} DrawingShape
+ * @typedef {{ icon: string } & ({ type: "drawing" } | { type: "shape", shapeID: string, makeShape: (start: Point, end: Point) => Point[], getAttachPoints: (obj: ShapeObject) => AttachPoint[] })} DrawingShape
  * @type {DrawingShape[]}
  */
 var drawingModes = [
@@ -1769,8 +1768,11 @@ var drawingModes = [
 	{ icon: "M 2 8 L 8 2",
 		type: "shape", shapeID: "line", makeShape: (start, end) => {
 			return [start, end]
-		}, getExtraAttachPoints: (obj) => {
-			return []
+		}, getAttachPoints: (obj) => {
+			return [
+				new AttachPoint(obj, "start", () => obj.start, (p) => p, (p) => obj.start = p),
+				new AttachPoint(obj, "end", () => obj.end, (p) => p, (p) => obj.end = p)
+			]
 		}
 	},
 	{ icon: "M 1 2 L 1 8 L 9 8 L 9 2 Z",
@@ -1782,8 +1784,10 @@ var drawingModes = [
 				{ x: start.x, y: end.y },
 				{ x: start.x, y: start.y }
 			]
-		}, getExtraAttachPoints: (obj) => {
+		}, getAttachPoints: (obj) => {
 			return [
+				new AttachPoint(obj, "start", () => obj.start, (p) => p, (p) => obj.start = p),
+				new AttachPoint(obj, "end", () => obj.end, (p) => p, (p) => obj.end = p),
 				new AttachPoint(obj, "corner1", () => ({ x: obj.start.x, y: obj.end.y }), (pos) => pos, (pos) => (obj.start.x = pos.x, obj.end.y = pos.y)),
 				new AttachPoint(obj, "corner2", () => ({ x: obj.end.x, y: obj.start.y }), (pos) => pos, (pos) => (obj.end.x = pos.x, obj.start.y = pos.y))
 			]
@@ -1805,8 +1809,33 @@ var drawingModes = [
 				});
 			}
 			return circlePoints;
-		}, getExtraAttachPoints: (obj) => {
-			return []
+		}, getAttachPoints: (obj) => {
+			return [
+				new AttachPoint(obj, "center", () => obj.start, (p) => p, (p) => {
+					let r = dist(obj.start, obj.end)
+					obj.start = p
+					obj.end = { x: obj.start.x, y: obj.start.y + r }
+				}),
+				...[...Array(24).keys()].map((i) => new AttachPoint(obj, "circle"+i, () => {
+					var r = dist(obj.start, obj.end)
+					var theta = 2 * Math.PI * (i / 24);
+					return {
+						x: obj.start.x + (r * Math.cos(theta)),
+						y: obj.start.y + (r * Math.sin(theta))
+					};
+				}, (pos) => {
+					var r = dist(pos, obj.start)
+					var theta = 2 * Math.PI * (i / 24);
+					return {
+						x: obj.start.x + (r * Math.cos(theta)),
+						y: obj.start.y + (r * Math.sin(theta))
+					};
+				}, (pos) => {
+					var r = dist(pos, obj.start)
+					obj.end.x = obj.start.x;
+					obj.end.y = obj.start.y + r;
+				}, i % 3 == 0))
+			]
 		}
 	}
 ]
@@ -2084,7 +2113,6 @@ class Draw2DShapeTouchMode extends TouchMode {
 		canvas.stroke()
 		// Attach points
 		for (var attachPoint of this.touch.whiteboard.getAllAttachPoints()
-			.filter((v) => !this.touch.whiteboard.getAllAttachPoints().some((w) => v.isAttachedTo(w))) // not already attached
 			.filter((v) => dist(v.getPos(), this.end.pos) < 50 / this.touch.whiteboard.viewport.zoom)
 		) {
 			canvas.fillStyle = "white"
