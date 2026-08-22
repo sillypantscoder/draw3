@@ -761,6 +761,8 @@ class Handle {
 		this.pos = { x: 0, y: 0 }
 		this.isDragging = false;
 	}
+	/** @param {(point: AttachPoint) => boolean} isOtherPointAttached */
+	isVisuallyAttached(isOtherPointAttached) { return false; }
 	/**
 	 * @param {number} x
 	 * @param {number} y
@@ -895,9 +897,12 @@ class AttachPointMoveHandle extends Handle {
 		this.srcObject = srcObject
 		this.point = point
 		this.findAttachPoint = findAttachPoint
+		this.aboutToBeAttached = false;
 		// Find handle position
 		this.pos = this.point.getPos()
 	}
+	/** @param {(point: AttachPoint) => boolean} isOtherPointAttached */
+	isVisuallyAttached(isOtherPointAttached) { return this.point.otherPoint != null || this.aboutToBeAttached || isOtherPointAttached(this.point); }
 	/**
 	 * @param {number} x
 	 * @param {number} y
@@ -906,7 +911,10 @@ class AttachPointMoveHandle extends Handle {
 		// Snap to existing attach points
 		let targetPos = { x, y };
 		var attach_point = this.findAttachPoint(targetPos.x, targetPos.y, [this.srcObject, ...(this.point.otherPoint == null ? [] : [this.point.otherPoint])])
-		if (attach_point != null) targetPos = attach_point.getPos();
+		if (attach_point != null) {
+			targetPos = attach_point.getPos();
+			this.aboutToBeAttached = true;
+		} else this.aboutToBeAttached = false;
 		// Move handle
 		targetPos = this.point.moveTo(targetPos);
 		super.moveTo(targetPos.x, targetPos.y);
@@ -1019,6 +1027,18 @@ class Renderer2D {
 				mainCanvasCtx.arc(screenPos.x, screenPos.y, 10, 0, Math.PI * 2);
 				mainCanvasCtx.fill();
 				mainCanvasCtx.stroke();
+				// Attach point
+				if (handle.isVisuallyAttached((p) => Whiteboard2D.getPointsAttachedTo(p, this.whiteboard.objects).length > 0)) {
+					mainCanvasCtx.strokeStyle = "#800"
+					mainCanvasCtx.lineWidth = 1
+					mainCanvasCtx.beginPath();
+					mainCanvasCtx.moveTo(screenPos.x - 5, screenPos.y);
+					mainCanvasCtx.lineTo(screenPos.x + 5, screenPos.y);
+					mainCanvasCtx.moveTo(screenPos.x, screenPos.y - 5);
+					mainCanvasCtx.lineTo(screenPos.x, screenPos.y + 5);
+					mainCanvasCtx.stroke();
+					mainCanvasCtx.strokeStyle = "#008"
+				}
 			}
 		}
 		// Render touches
@@ -1566,8 +1586,8 @@ class Whiteboard2D extends AbstractWhiteboard {
 	getAllHandles() {
 		if (this.selection == null) return [];
 		if (this.selection.objects.length == 1) return [
-			...this.selection.objects[0].attachPoints.map(((o) => (v) => new AttachPointMoveHandle(this.viewport, o, v, (x, y, exclude) => this.findAttachPoint(x, y, exclude)))(this.selection.objects[0])),
 			new LinearMovementHandle(this.viewport, this.selection),
+			...this.selection.objects[0].attachPoints.map(((o) => (v) => new AttachPointMoveHandle(this.viewport, o, v, (x, y, exclude) => this.findAttachPoint(x, y, exclude)))(this.selection.objects[0])),
 			...this.selection.objects[0].getHandles(this.viewport, this.selection.boundingBox)
 		]; else return [new LinearMovementHandle(this.viewport, this.selection)]
 	}
@@ -1577,6 +1597,16 @@ class Whiteboard2D extends AbstractWhiteboard {
 			if (objectToUpdate == null) return;
 			this.updateAttachedObjects(objectToUpdate);
 		}
+	}
+	getAllAttachPoints() {
+		return this.objects.flatMap((v) => v.attachPoints);
+	}
+	/**
+	 * @param {AttachPoint} targetPoint
+	 * @param {SceneObject2D[]} checkObjectSet
+	 */
+	static getPointsAttachedTo(targetPoint, checkObjectSet) {
+		return checkObjectSet.flatMap((v) => v.attachPoints).filter((v) => v.otherPoint?.objectID == targetPoint.srcObject.objectID && v.otherPoint.name == targetPoint.name);
 	}
 	/**
 	 * @param {SceneObject2D} movedObject
@@ -1650,7 +1680,7 @@ class Whiteboard2D extends AbstractWhiteboard {
 			/** @type {Handle | null} */
 			var closestHandle = null;
 			var closestHandleDistance = 30; // handle distance must be at most 30px
-			for (var handle of touch.whiteboard.selection.handles) {
+			for (var handle of touch.whiteboard.selection.handles.toReversed()) {
 				if (handle.isDragging) continue;
 				var handleScreenPos = touch.whiteboard.viewport.getScreenPosFromStagePos(handle.pos.x, handle.pos.y)
 				// Check if this handle is close enough
@@ -1720,6 +1750,12 @@ class AttachPoint {
 	detach() {
 		this.srcObject.markAboutToEdit();
 		this.otherPoint = null
+	}
+	/** @param {AttachPoint} otherPoint */
+	isAttachedTo(otherPoint) {
+		if (this.otherPoint?.objectID == otherPoint.srcObject.objectID && this.otherPoint.name == otherPoint.name) return true;
+		if (otherPoint.otherPoint?.objectID == this.srcObject.objectID && otherPoint.otherPoint.name == this.name) return true;
+		return false;
 	}
 }
 /**
@@ -2046,6 +2082,28 @@ class Draw2DShapeTouchMode extends TouchMode {
 			let drawPos = viewport.getScreenPosFromStagePos(points[i].x, points[i].y); canvas.lineTo(drawPos.x, drawPos.y);
 		}
 		canvas.stroke()
+		// Attach points
+		for (var attachPoint of this.touch.whiteboard.getAllAttachPoints()
+			.filter((v) => !this.touch.whiteboard.getAllAttachPoints().some((w) => v.isAttachedTo(w))) // not already attached
+			.filter((v) => dist(v.getPos(), this.end.pos) < 50 / this.touch.whiteboard.viewport.zoom)
+		) {
+			canvas.fillStyle = "white"
+			canvas.strokeStyle = "#800"
+			canvas.lineWidth = 1
+			let pos = attachPoint.getPos();
+			let screenPos = viewport.getScreenPosFromStagePos(pos.x, pos.y)
+			if (attachPoint != this.end.attach_point) canvas.globalAlpha = 0.75;
+			canvas.beginPath();
+			canvas.arc(screenPos.x, screenPos.y, 7.5, 0, Math.PI * 2);
+			canvas.fill();
+			canvas.globalAlpha = 1;
+			canvas.beginPath();
+			canvas.moveTo(screenPos.x - 5, screenPos.y);
+			canvas.lineTo(screenPos.x + 5, screenPos.y);
+			canvas.moveTo(screenPos.x, screenPos.y - 5);
+			canvas.lineTo(screenPos.x, screenPos.y + 5);
+			canvas.stroke();
+		}
 	}
 	/**
 	 * @param {number} previousX
@@ -2361,6 +2419,40 @@ class HandleDraggingTouchMode extends TouchMode {
 		super(touch)
 		this.handle = handle
 		this.handle.isDragging = true;
+	}
+	/**
+	 * @param {Viewport} viewport
+	 * @param {CanvasRenderingContext2D} canvas
+	 */
+	render(viewport, canvas) {
+		if (! (this.handle instanceof AttachPointMoveHandle)) return;
+		{ let point = this.handle.point; if (this.touch.whiteboard.getAllAttachPoints().some((v) => point.isAttachedTo(v))) return; }
+		canvas.fillStyle = "white"
+		canvas.strokeStyle = "#800"
+		canvas.lineWidth = 1
+		let excludeObjects = this.handle.getAffectedObjects()
+		for (var attachPoint of this.touch.whiteboard.objects
+			.filter((v) => !excludeObjects.includes(v)) // not an excluded object
+			.flatMap((v) => v.attachPoints)
+			.filter((v) => !excludeObjects.flatMap((w) => w.attachPoints).some((w) => v.isAttachedTo(w))) // not attached to an excluded object
+			.filter((v) => dist(v.getPos(), this.handle.pos) < 250 / this.touch.whiteboard.viewport.zoom)
+			.sort((a, b) => dist(a.getPos(), this.handle.pos) - dist(b.getPos(), this.handle.pos))
+			.slice(0, 10)
+		) {
+			let pos = attachPoint.getPos();
+			let screenPos = viewport.getScreenPosFromStagePos(pos.x, pos.y)
+			canvas.globalAlpha = 0.75;
+			canvas.beginPath();
+			canvas.arc(screenPos.x, screenPos.y, 7.5, 0, Math.PI * 2);
+			canvas.fill();
+			canvas.globalAlpha = 1;
+			canvas.beginPath();
+			canvas.moveTo(screenPos.x - 5, screenPos.y);
+			canvas.lineTo(screenPos.x + 5, screenPos.y);
+			canvas.moveTo(screenPos.x, screenPos.y - 5);
+			canvas.lineTo(screenPos.x, screenPos.y + 5);
+			canvas.stroke();
+		}
 	}
 	/**
 	 * @param {number} previousX
