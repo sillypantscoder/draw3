@@ -107,6 +107,12 @@ class AbstractSceneObject {
 	static generateObjectID() {
 		return Math.floor(Math.random() * 10000000)
 	}
+	/**
+	 * @param {Object<string, any>} data
+	 * @param {Point} offset
+	 * @returns {Object<string, any>}
+	 */
+	static linearMoveData(data, offset) { throw new Error("Not a 2D object"); }
 	/** @returns {string} */
 	// @ts-ignore
 	getTypeID() { return this.constructor.typeID; }
@@ -119,6 +125,33 @@ class SceneObject2D extends AbstractSceneObject {
 	loadAttachPoints(data) { Object.entries(data ?? {}).forEach((v) => this.attachPoints.filter((w) => v[0] == w.name).forEach((w) => w.otherPoint = v[1])) }
 	/** @returns {Object<string, any>} */
 	saveAttachPoints() { return Object.fromEntries(this.attachPoints.map((v) => [v.name, v.otherPoint])) }
+	/** @param {Point} origin */
+	saveToDataForClipboard(origin) { return {}; }
+	/**
+	 * @param {SceneObject2D[]} objects
+	 * @param {(objectID: number) => boolean} hasBlob
+	 */
+	static getClipboardData(objects, hasBlob) {
+		let origin = getBoundingBox(objects.map((v) => v.getBoundingRect(new Viewport())))
+		let data = objects.map((v) => ({
+			typeID: v.getTypeID(),
+			data: v.saveToDataForClipboard(origin),
+			blob: hasBlob(v.objectID) ? v.objectID : null,
+			attachPoints: Object.fromEntries(
+				v.attachPoints.filter((v) => objects.some((w) => w.objectID == v.otherPoint?.objectID))
+				.map((v) => [v.name, { objectID: objects.findIndex((w) => v.otherPoint?.objectID == w.objectID), name: v.otherPoint?.name ?? "" }])
+			)
+		}))
+		return JSON.stringify(data);
+	}
+	/**
+	 * @param {string} typeID
+	 * @param {Object<string, any>} data
+	 * @param {Point} pos
+	 */
+	static moveClipboardData(typeID, data, pos) {
+		return objectTypes[typeID].linearMoveData(data, pos)
+	}
 	/**
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
@@ -173,6 +206,11 @@ class DrawingObject extends SceneObject2D {
 	}
 	/** @returns {Object<string, any>} */
 	saveToData() { return { d: DrawingObject.savePointList(this.path), color: this.color }; }
+	/** @param {Point} origin */
+	saveToDataForClipboard(origin) {
+		let path = this.path.map((v) => ({ x: v.x - origin.x, y: v.y - origin.y }))
+		return { d: DrawingObject.savePointList(path), color: this.color };
+	}
 	/**
 	 * @param {string} data
 	 * @returns {Point[]}
@@ -278,6 +316,14 @@ class DrawingObject extends SceneObject2D {
 			pos.y += dy;
 		}
 	}
+	/**
+	 * @param {Object<string, any>} data
+	 * @param {Point} offset
+	 * @returns {Object<string, any>}
+	 */
+	static linearMoveData(data, offset) {
+		return { d: DrawingObject.savePointList(DrawingObject.parsePointList(data.d).map((v) => ({ x: v.x + offset.x, y: v.y + offset.y }))), color: data.color };
+	}
 }
 class ShapeObject extends SceneObject2D {
 	static typeID = "shape"
@@ -306,6 +352,8 @@ class ShapeObject extends SceneObject2D {
 	getShapeConfig() {
 		return drawingModes.filter((v) => v.type == "shape").filter((v) => v.shapeID == this.shapeID)[0];
 	}
+	/** @param {Point} origin */
+	saveToDataForClipboard(origin) { return { shape: this.shapeID, start: { x: this.start.x - origin.x, y: this.start.y - origin.y }, end: { x: this.end.x - origin.x, y: this.end.y - origin.y }, color: this.color }; }
 	/**
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
@@ -404,6 +452,14 @@ class ShapeObject extends SceneObject2D {
 		this.end.x += dx
 		this.end.y += dy
 	}
+	/**
+	 * @param {Object<string, any>} data
+	 * @param {Point} offset
+	 * @returns {Object<string, any>}
+	 */
+	static linearMoveData(data, offset) {
+		return { shape: data.shape, start: { x: data.start.x + offset.x, y: data.start.y + offset.y }, end: { x: data.end.x + offset.x, y: data.end.y + offset.y }, color: data.color };
+	}
 }
 class PointObject extends SceneObject2D {
 	static typeID = "point"
@@ -422,6 +478,8 @@ class PointObject extends SceneObject2D {
 	}
 	/** @returns {Object<string, any>} */
 	saveToData() { return { pos: this.pos, color: this.color, attachPoints: this.saveAttachPoints() }; }
+	/** @param {Point} origin */
+	saveToDataForClipboard(origin) { return { pos: { x: this.pos.x - origin.x, y: this.pos.y - origin.y }, color: this.color } }
 	/**
 	 * @param {Viewport} viewport
 	 * @param {CanvasRenderingContext2D} canvas
@@ -467,6 +525,14 @@ class PointObject extends SceneObject2D {
 		this.pos.x += dx;
 		this.pos.y += dy;
 	}
+	/**
+	 * @param {Object<string, any>} data
+	 * @param {Point} offset
+	 * @returns {Object<string, any>}
+	 */
+	static linearMoveData(data, offset) {
+		return { pos: { x: data.pos.x + offset.x, y: data.pos.y + offset.y }, color: data.color };
+	}
 }
 class TextObject extends SceneObject2D {
 	static typeID = "text"
@@ -488,6 +554,8 @@ class TextObject extends SceneObject2D {
 	}
 	/** @returns {Object<string, any>} */
 	saveToData() { return { pos: this.pos, width: this.width, scale: this.scale, text: this.text }; }
+	/** @param {Point} origin */
+	saveToDataForClipboard(origin) { return { pos: { x: this.pos.x - origin.x, y: this.pos.y - origin.y }, width: this.width, scale: this.scale, text: this.text }; }
 	/**
 	 * @param {Point} pos
 	 * @param {number} width
@@ -686,6 +754,14 @@ width: ${this.width * this.scale * viewport.zoom}px; font-size: ${16 * this.scal
 		this.pos.y += dy;
 	}
 	/**
+	 * @param {Object<string, any>} data
+	 * @param {Point} offset
+	 * @returns {Object<string, any>}
+	 */
+	static linearMoveData(data, offset) {
+		return { pos: { x: data.pos.x + offset.x, y: data.pos.y + offset.y }, width: data.width, scale: data.scale, text: data.text };
+	}
+	/**
 	 * @param {Viewport} viewport
 	 * @param {Rect} boundingBox
 	 * @returns {Handle[]}
@@ -748,6 +824,8 @@ class ImageObject extends SceneObject2D {
 	}
 	/** @returns {Object<string, any>} */
 	saveToData() { return { pos: this.pos, scale: this.scale }; }
+	/** @param {Point} origin */
+	saveToDataForClipboard(origin) { return { pos: { x: this.pos.x - origin.x, y: this.pos.y - origin.y }, scale: this.scale } }
 	/**
 	 * @param {ImageObject} obj
 	 * @param {string} name
@@ -814,6 +892,14 @@ class ImageObject extends SceneObject2D {
 		super.linearMove(dx, dy);
 		this.pos.x += dx;
 		this.pos.y += dy;
+	}
+	/**
+	 * @param {Object<string, any>} data
+	 * @param {Point} offset
+	 * @returns {Object<string, any>}
+	 */
+	static linearMoveData(data, offset) {
+		return { pos: { x: data.pos.x + offset.x, y: data.pos.y + offset.y }, scale: data.scale };
 	}
 	/**
 	 * @param {Viewport} viewport
@@ -1360,14 +1446,14 @@ class AbstractWhiteboard {
 				if (e.key == "Y") this.undo()
 			}
 		})
-		window.addEventListener("keyup", ((/** @type {KeyboardEvent} */ e) => {
+		window.addEventListener("keyup", (e) => {
 			if (e.key == "Shift") this.shiftKeyDown = false
-		}).bind(this))
-		window.addEventListener("paste", ((/** @type {ClipboardEvent} */ e) => {
-			if (e.clipboardData != null) {
+		})
+		window.addEventListener("paste", (e) => {
+			if (document.activeElement?.tagName != "TEXTAREA" && e.clipboardData != null) {
 				this.loadInsertedContent([...e.clipboardData.items]);
 			}
-		}).bind(this))
+		})
 		document.body.addEventListener("dragover", (e) => {
 			// Make body into a drop target
 			e.preventDefault();
@@ -1566,19 +1652,31 @@ class Whiteboard2D extends AbstractWhiteboard {
 			this.selection = null
 			this.updateSelection()
 		}).bind(this))
+		window.addEventListener("copy", (e) => {
+			if (document.activeElement?.tagName != "TEXTAREA" && e.clipboardData != null) {
+				let dataTransfer = e.clipboardData;
+				this.copyDataToClipboard((data) => dataTransfer.setData("application/x-draw3-objects", data));
+				e.preventDefault();
+			}
+		})
 	}
 	/** @param {(ClipboardItem | DataTransferItem)[]} content */
 	async loadInsertedContent(content) {
 		var fails = 0
-		var successes = 0
+		var images = 0
+		var objects = 0
 		for (var obj of content) {
 			// Evaluate this content to see if it can be inserted
 			if (obj instanceof DataTransferItem) {
 				// If it's a DataTransferItem:
 				if (obj.kind == "file" && obj.type.startsWith("image/")) {
-						var file = obj.getAsFile()
-						if (file) this.connection.createImage(file, successes)
-						successes += 1;
+					var file = obj.getAsFile()
+					if (file) this.connection.createImage(file, images)
+					images += 1;
+				} else if (obj.kind == "string" && obj.type == "application/x-draw3-objects") {
+					/** @type {string} */
+					var data = await new Promise(((obj) => (resolve) => obj.getAsString(resolve))(obj))
+					objects += await this.pasteObjects(data, this.getBlob.bind(this))
 				} else fails += 1;
 			}
 			if (obj instanceof ClipboardItem) {
@@ -1586,8 +1684,12 @@ class Whiteboard2D extends AbstractWhiteboard {
 				for (var mimeType of obj.types) {
 					if (mimeType.startsWith("image/")) {
 						var blob = await obj.getType(mimeType)
-						this.connection.createImage(blob, successes)
-						successes += 1;
+						this.connection.createImage(blob, images)
+						images += 1;
+					} else if (mimeType == "application/x-draw3-objects") {
+						/** @type {string} */
+						var data = await obj.getType(mimeType).then((v) => v.text())
+						objects += await this.pasteObjects(data, this.getBlob.bind(this))
 					} else fails += 1;
 				}
 			}
@@ -1595,10 +1697,10 @@ class Whiteboard2D extends AbstractWhiteboard {
 		// Create info message
 		{
 			let e = document.body.appendChild(document.createElement("div"))
-			let styles = `position: absolute; bottom: 12em; left: 0; margin: 1em; border: 0.25em solid black; background: ${successes == 0 ? "#F00" : "#080"}; padding: 1em; border-radius: 1em; font-weight: bold; color: white; transition: opacity 2s linear, transform 0.125s ease-in-out;`
+			let styles = `position: absolute; bottom: 12em; left: 0; margin: 1em; border: 0.25em solid black; background: ${(images == 0 && objects == 0) ? "#F00" : "#080"}; padding: 1em; border-radius: 1em; font-weight: bold; color: white; transition: opacity 2s linear, transform 0.125s ease-in-out;`
 			e.setAttribute("style", styles + " opacity: 1; transform: scale(0.9);")
-			e.innerText = `${fails > 0 ? `Failed to insert ${fails} non-image item${fails == 1 ? "" : "s"}.` : ""}${fails > 0 && successes > 0 ? " " : ""}${successes > 0 ? `Inserting ${successes} image${successes == 1 ? "" : "s"}...` : ""}`
-			if (fails == 0 && successes == 0) e.innerText = `There is nothing copied to the clipboard!`
+			e.innerText = `${fails > 0 ? `Failed to insert ${fails} non-image item${fails == 1 ? "" : "s"}.` : ""}${fails > 0 && (images>0||objects>0) ? " " : ""}${(images > 0 || objects > 0) ? `Inserting ${images > 0 ? images+" image"+(images == 1 ? "" : "s") : ""}${(images > 0 && objects > 0) ? " and " : ""}${objects > 0 ? objects+" object"+(objects == 1 ? "" : "s") : ""}...` : ""}`
+			if (fails == 0 && images == 0 && objects == 0) e.innerText = `There is nothing copied to the clipboard!`
 			// Finish zoom out
 			requestAnimationFrame(() => {
 				requestAnimationFrame(() => {
@@ -1613,6 +1715,80 @@ class Whiteboard2D extends AbstractWhiteboard {
 			setTimeout(() => {
 				e.remove()
 			}, 3000)
+		}
+	}
+	/**
+	 * @param {string} clipboardData
+	 * @param {(objectID: number) => Promise<Blob | null>} getBlob
+	 */
+	async pasteObjects(clipboardData, getBlob) {
+		/** @type {{ typeID: string, data: Object<string, any>, blob: number | null, attachPoints: Object<string, { objectID: number, name: string }> }[]} */
+		var allObjData = JSON.parse(clipboardData);
+		var objectIDs = allObjData.map((_) => AbstractSceneObject.generateObjectID());
+		/** @type {{ typeID: string, objectID: number, data: Object<string, any>, blob: Blob | null }[]} */
+		var objDataToSpawn = [];
+		for (var i = 0; i < allObjData.length; i++) {
+			let objData = allObjData[i];
+			objDataToSpawn.push({
+				typeID: objData.typeID,
+				objectID: objectIDs[i],
+				data: SceneObject2D.moveClipboardData(objData.typeID, objData.data, this.viewport.getStagePosFromScreenPos(50, 50)),
+				blob: objData.blob == null ? null : await getBlob(objData.blob)
+			});
+			objDataToSpawn[i].data.attachPoints = {}
+			for (let attachPoint of Object.entries(objData.attachPoints)) {
+				objDataToSpawn[i].data.attachPoints[attachPoint[0]] = { objectID: objectIDs[attachPoint[1].objectID], name: attachPoint[1].name }
+			}
+		}
+		this.doAction(new USICreateObjects(this, objDataToSpawn));
+		return allObjData.length;
+	}
+	/** @param {(data: string) => void} setData */
+	copyDataToClipboard(setData) {
+		if (this.selection == null) {
+			let e = document.body.appendChild(document.createElement("div"))
+			let styles = `position: absolute; bottom: 12em; left: 0; margin: 1em; border: 0.25em solid black; background: #F00; padding: 1em; border-radius: 1em; font-weight: bold; color: white; transition: opacity 2s linear, transform 0.125s ease-in-out;`
+			e.setAttribute("style", styles + " opacity: 1; transform: scale(0.9);")
+			e.innerText = `No objects are selected!`
+			// Finish zoom out
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					e.setAttribute("style", styles + " opacity: 1; transform: scale(1);")
+				})
+			})
+			// Start fading
+			setTimeout(() => {
+				e.setAttribute("style", styles + " opacity: 0;")
+			}, 1000)
+			// Finish fading
+			setTimeout(() => {
+				e.remove()
+			}, 3000)
+			return;
+		}
+		let copyData = SceneObject2D.getClipboardData(this.selection.objects, (objectID) => Boolean(this.blobs.get(objectID)));
+		setData(copyData);
+		// Success message
+		{
+			let e = document.body.appendChild(document.createElement("div"))
+			let styles = `position: absolute; bottom: 12em; left: 0; margin: 1em; border: 0.25em solid black; background: #080; padding: 1em; border-radius: 1em; font-weight: bold; color: white; transition: opacity 2s linear, transform 0.125s ease-in-out;`
+			e.setAttribute("style", styles + " opacity: 1; transform: scale(0.9);")
+			e.innerText = `Copied ${this.selection.objects.length} object${this.selection.objects.length == 1 ? "" : "s"} to the clipboard!`
+			// Finish zoom out
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					e.setAttribute("style", styles + " opacity: 1; transform: scale(1);")
+				})
+			})
+			// Start fading
+			setTimeout(() => {
+				e.setAttribute("style", styles + " opacity: 0;")
+			}, 1000)
+			// Finish fading
+			setTimeout(() => {
+				e.remove()
+			}, 3000)
+			return;
 		}
 	}
 	zoomViewportToFill() {
@@ -2871,7 +3047,7 @@ class USICreateObjects extends UndoStackItem {
 	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
 	do() {
 		for (var o of this.objects) {
-			this.whiteboard.add(AbstractSceneObject.createFromDataAndID(o.objectID, this.whiteboard.layerMode.selectedLayer, o.typeID, o.data, this.whiteboard.getBlob.bind(this.whiteboard, o.objectID)));
+			this.whiteboard.add(AbstractSceneObject.createFromDataAndID(o.objectID, this.whiteboard.layerMode.selectedLayer, o.typeID, o.data, () => Promise.resolve(o.blob)));
 			this.whiteboard.connection.createObject(o.objectID, this.whiteboard.layerMode.selectedLayer, o.typeID, o.data, o.blob);
 		}
 	}
