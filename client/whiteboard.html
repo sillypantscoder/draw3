@@ -56,6 +56,28 @@ textarea {
 	opacity: 1;
 	transform: scale(1);
 }
+button.circle-btn {
+	margin: 0;
+	margin: 0 0.5em;
+	border: none;
+	padding: 0.5em;
+	background: white;
+	border-radius: 50%;
+	width: 2em;
+	& svg {
+		vertical-align: text-top;
+	}
+	&:not(:disabled):active {
+		filter: brightness(0.75);
+		transform: scale(0.875);
+	}
+	&:disabled {
+		filter: brightness(0.5);
+	}
+	& + button.circle-btn {
+		margin-left: 0.25em;
+	}
+}
 .menu-option {
 	padding: 0.5em;
 	transition: filter 0.3s;
@@ -206,15 +228,30 @@ textarea {
 			</div>
 			<!-- <div class="menu-button" data-mode="Settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="0" y="0" width="20" height="20" rx="5" fill="black" /><rect x="8" y="2" width="4" height="16" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(60)" transform-origin="center" fill="white" /><rect x="8" y="2" width="4" height="16" transform="rotate(120)" transform-origin="center" fill="white" /><circle cx="10" cy="10" r="6" fill="white" /><circle cx="10" cy="10" r="3" fill="black" /></svg></div> -->
 		</div>
-		<div class="menu" style="left: 8em; padding: 1em;">
-			<div><label for="is_strict_layer_checkbox">Layer: </label><!--
-				--><button onclick="whiteboard.updateLayer(-1, true)" style="padding-inline: 1em;">&ShortDownArrow;</button><!--
-				--><input type="number" value="0" min="-1" max="9" style="width: 2em;" id="layer-display" oninput="whiteboard.updateLayer(event.target.value, false)"><!--
-				--><button onclick="whiteboard.updateLayer(1, true)" style="padding-inline: 1em;">&ShortUpArrow;</button></div>
+		<div class="menu" style="left: 8em; padding: 1em 0.75em; text-align: center;">
+			<div><label for="is_strict_layer_checkbox">Layer:</label><br><!--
+				--><button class="circle-btn" onclick="whiteboard.updateLayer(-1, true)"><svg viewBox="0 0 10 10">
+					<path d="M 5.5 1 L 5.5 7 L 7.5 5 L 8.25 5.625 L 5 8.75 L 1.75 5.625 L 2.5 5 L 4.5 7 L 4.5 1 Z" fill="black" />
+				</svg></button><!--
+				--><input type="number" value="0" min="-1" max="9" style="width: 2em; margin-bottom: 0.5em;" id="layer-display" oninput="whiteboard.updateLayer(event.target.value, false)"><!--
+				--><button class="circle-btn" onclick="whiteboard.updateLayer(1, true)"><svg viewBox="0 0 10 10">
+					<path d="M 4.5 9 L 4.5 3 L 2.5 5 L 1.75 4.375 L 5 1.25 L 8.25 4.375 L 7.5 5 L 5.5 3 L 5.5 9 Z" fill="black" />
+				</svg></button></div>
 			<div>Mode: <b id="mode-output">Draw</b></div>
-			<div><button onclick="whiteboard.undo()">Undo</button><button onclick="whiteboard.redo()">Redo</button><button onclick="document.querySelector('#settings-menu').classList.remove('hidden'); this.blur();">Settings...</button></div>
+			<!-- TODO: change layers with circle buttons -->
+			<div><button class="circle-btn" onclick="whiteboard.undo()"><svg viewBox="0 0 10 10">
+				<path d="M 3 8 L 5 8 C 9.5 8 9.5 4 5 4 L 4 4 L 4 6 L 1 3.5 L 4 1 L 4 3 L 5 3 C 11 3 11 9 5 9 L 3 9 Z" fill="black" />
+			</svg></button><button class="circle-btn" onclick="whiteboard.redo()"><svg viewBox="0 0 10 10">
+				<path d="M 7 8 L 5 8 C 0.5 8 0.5 4 5 4 L 6 4 L 6 6 L 9 3.5 L 6 1 L 6 3 L 5 3 C -1 3 -1 9 5 9 L 7 9 Z" fill="black" />
+			</svg></button><button class="circle-btn" onclick="document.querySelector('#settings-menu').classList.remove('hidden'); this.blur();"><svg viewBox="0 0 20 20">
+				<rect x="8" y="2" width="4" height="16" fill="black" />
+				<rect x="8" y="2" width="4" height="16" transform="rotate(60)" transform-origin="center" fill="black" />
+				<rect x="8" y="2" width="4" height="16" transform="rotate(120)" transform-origin="center" fill="black" />
+				<circle cx="10" cy="10" r="6" fill="black" />
+				<circle cx="10" cy="10" r="3" fill="white" />
+			</svg></button></div>
 		</div>
-		<div class="menu" style="left: 8em; bottom: 6.75em; padding: 1em;" id="drawmode">
+		<div class="menu" style="left: 17.75em; padding: 1em;" id="drawmode">
 			<div id="drawing_mode_select">Drawing Mode: </div>
 			<div id="color_select"><span style="display: inline-block; text-align: right; width: 4em;">Color: </span></div>
 		</div>
