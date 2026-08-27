@@ -1219,7 +1219,7 @@ class Renderer2D {
 		}
 	}
 	checkForEditedObjects() {
-		/** @type {{ objectID: number, previousData: Object, data: Object }[]} */
+		/** @type {{ objectID: number, previousData: Object, newData: Object }[]} */
 		var objectEdits = []
 		for (var i = 0; i < this.whiteboard.objects.length; i++) {
 			var obj = this.whiteboard.objects[i];
@@ -1230,14 +1230,14 @@ class Renderer2D {
 				objectEdits.push({
 					objectID: obj.objectID,
 					previousData: obj.editRecord.originalData,
-					data: obj.saveToData()
+					newData: obj.saveToData()
 				})
 				// Reset object
 				obj.editRecord = null
 			}
 		}
 		if (objectEdits.length > 0) {
-			this.whiteboard.doAction(new USIEditObjects(this.whiteboard, objectEdits))
+			this.whiteboard.doAction(new USIModifyObjects(this.whiteboard, [], objectEdits, []))
 			this.whiteboard.updateSelection()
 		}
 	}
@@ -1634,9 +1634,7 @@ class Whiteboard2D extends AbstractWhiteboard {
 			}
 			if (this.selection != null && (e.key == "Backspace" || e.key == "Delete" || e.key == "a")) {
 				// Delete selection
-				this.doAction(new USIEraseObjects(this, this.selection.objects.map((v) => ({
-					layer: this.layerMode.selectedLayer, typeID: v.getTypeID(), objectID: v.objectID, data: v.saveToData(), blob: this.blobs.get(v.objectID) ?? null
-				}))));
+				this.eraseObjects(this.selection.objects)
 				this.selection = null;
 				this.updateSelection();
 				// Erase shortcut (from Select) leads to Draw
@@ -1659,6 +1657,37 @@ class Whiteboard2D extends AbstractWhiteboard {
 				e.preventDefault();
 			}
 		})
+	}
+	/** @param {SceneObject2D[]} objectsToErase */
+	eraseObjects(objectsToErase) {
+		/** @type {{ typeID: string, objectID: number, data: Object, blob: Blob | null }[]} */
+		let deletions = [];
+		objectsToErase.forEach((o) => {
+			// Detach attach points for non-erased objects
+			o.attachPoints.forEach((v) => {
+				if (v.otherPoint != null && objectsToErase.find((w) => w.objectID == v.otherPoint?.objectID) == null) {
+					v.otherPoint = null
+				}
+			});
+			// save this deletion
+			deletions.push({ typeID: o.getTypeID(), objectID: o.objectID, data: o.saveToData(), blob: this.blobs.get(o.objectID) ?? null })
+		});
+		/** @type {{ objectID: number; previousData: Object; newData: Object; }[]} */
+		let edits = [];
+		this.objects.forEach((o) => {
+			if (objectsToErase.includes(o)) return;
+			let editData = { objectID: o.objectID, previousData: o.saveToData(), newData: o.saveToData() };
+			let needsEdit = false;
+			o.attachPoints.forEach((v) => {
+				if (v.otherPoint != null && objectsToErase.find((w) => w.objectID == v.otherPoint?.objectID) != null) {
+					// save this edit
+					needsEdit = true;
+					editData.newData["attachPoints"][v.name] = null;
+				}
+			})
+			if (needsEdit) edits.push(editData);
+		});
+		this.doAction(new USIModifyObjects(this, [], edits, deletions));
 	}
 	/** @param {(ClipboardItem | DataTransferItem)[]} content */
 	async loadInsertedContent(content) {
@@ -1740,7 +1769,7 @@ class Whiteboard2D extends AbstractWhiteboard {
 				objDataToSpawn[i].data.attachPoints[attachPoint[0]] = { objectID: objectIDs[attachPoint[1].objectID], name: attachPoint[1].name }
 			}
 		}
-		this.doAction(new USICreateObjects(this, objDataToSpawn));
+		this.doAction(new USIModifyObjects(this, objDataToSpawn, [], []));
 		return allObjData.length;
 	}
 	/** @param {(data: string) => void} setData */
@@ -1872,9 +1901,7 @@ class Whiteboard2D extends AbstractWhiteboard {
 	static getPointsAttachedTo(targetPoint, checkObjectSet) {
 		return checkObjectSet.flatMap((v) => v.attachPoints).filter((v) => v.otherPoint?.objectID == targetPoint.srcObject.objectID && v.otherPoint.name == targetPoint.name);
 	}
-	/**
-	 * @param {SceneObject2D} movedObject
-	 */
+	/** @param {SceneObject2D} movedObject */
 	updateAttachedObjects(movedObject) {
 		for (var attachPoint of movedObject.attachPoints) {
 			// Update other point, if there is one
@@ -2342,7 +2369,7 @@ class Draw2DTouchMode extends TouchMode {
 	onEnd(previousX, previousY) {
 		// Add drawing to screen
 		if (this.points.length > 3) {
-			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+			this.touch.whiteboard.doAction(new USIModifyObjects(this.touch.whiteboard, [{
 				typeID: "drawing",
 				objectID: AbstractSceneObject.generateObjectID(),
 				data: {
@@ -2350,7 +2377,7 @@ class Draw2DTouchMode extends TouchMode {
 					"color": this.color
 				},
 				blob: null
-			}]))
+			}], [], []))
 		}
 	}
 	toString() {
@@ -2441,7 +2468,7 @@ class Draw2DShapeTouchMode extends TouchMode {
 	onEnd(previousX, previousY) {
 		// Add drawing to screen
 		if (dist(this.start.pos, this.end.pos) > 3 / this.touch.whiteboard.viewport.zoom) {
-			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+			this.touch.whiteboard.doAction(new USIModifyObjects(this.touch.whiteboard, [{
 				typeID: "shape",
 				objectID: AbstractSceneObject.generateObjectID(),
 				data: {
@@ -2455,7 +2482,7 @@ class Draw2DShapeTouchMode extends TouchMode {
 					}
 				},
 				blob: null
-			}]))
+			}], [], []))
 		}
 	}
 	toString() {
@@ -2535,7 +2562,7 @@ class Draw2DPointTouchMode extends TouchMode {
 	 */
 	onEnd(previousX, previousY) {
 		// Add drawing to screen
-		this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+		this.touch.whiteboard.doAction(new USIModifyObjects(this.touch.whiteboard, [{
 			typeID: "point",
 			objectID: AbstractSceneObject.generateObjectID(),
 			data: {
@@ -2546,7 +2573,7 @@ class Draw2DPointTouchMode extends TouchMode {
 				}
 			},
 			blob: null
-		}]))
+		}], [], []))
 	}
 	toString() {
 		return `Draw2DPointTouchMode { pos: ${JSON.stringify(this.pos)}, color: ${this.color} }`
@@ -2616,7 +2643,7 @@ class TextTouchMode extends TouchMode {
 				y: Math.max(this.originalElement.y, this.newPos.y)
 			}
 			var scale = (endPos.y - startPos.y) / 64;
-			this.touch.whiteboard.doAction(new USICreateObjects(this.touch.whiteboard, [{
+			this.touch.whiteboard.doAction(new USIModifyObjects(this.touch.whiteboard, [{
 				typeID: "text",
 				objectID: AbstractSceneObject.generateObjectID(),
 				data: {
@@ -2626,7 +2653,7 @@ class TextTouchMode extends TouchMode {
 					"text": "Enter text here"
 				},
 				blob: null
-			}]))
+			}], [], []))
 		}
 	}
 	/**
@@ -2758,7 +2785,7 @@ class SelectTouchMode extends TouchMode {
 		}
 		// Update whiteboard selection value
 		if (selectedItems.size == 0) this.touch.whiteboard.selection = null;
-		else this.touch.whiteboard.selection = { objects: [...selectedItems], originalBoundingBox: { x: 0, y: 0, w: 0, h: 0 }, boundingBox: { x: 0, y: 0, w: 0, h: 0 }, handles: [] }
+		else this.touch.whiteboard.selection = { objects: [...selectedItems].reverse(), originalBoundingBox: { x: 0, y: 0, w: 0, h: 0 }, boundingBox: { x: 0, y: 0, w: 0, h: 0 }, handles: [] }
 		this.touch.whiteboard.updateSelection() // `originalBoundingBox`, `boundingBox` and `handles` will be set here
 	}
 	toString() {
@@ -2772,6 +2799,8 @@ class EraseTouchMode extends TouchMode {
 	 */
 	constructor(touch) {
 		super(touch)
+		/** @type {Set<SceneObject2D>} */
+		this.erasingObjects = new Set();
 		// Erase around this position
 		var touchLoc = this.touch.whiteboard.viewport.getStagePosFromScreenPos(touch.x, touch.y);
 		this.erasePoint(touchLoc)
@@ -2803,9 +2832,8 @@ class EraseTouchMode extends TouchMode {
 			// Check for collision
 			if (! collider(o[i])) continue;
 			// Erase the object
-			this.touch.whiteboard.doAction(new USIEraseObjects(this.touch.whiteboard, [{
-				typeID: o[i].getTypeID(), objectID: o[i].objectID, data: o[i].saveToData(), blob: this.touch.whiteboard.blobs.get(o[i].objectID) ?? null
-			}]))
+			this.erasingObjects.add(o[i])
+			o[i].unverify();
 		}
 	}
 	/**
@@ -2819,6 +2847,22 @@ class EraseTouchMode extends TouchMode {
 			start: this.touch.whiteboard.viewport.getStagePosFromScreenPos(previousX, previousY),
 			end: this.touch.whiteboard.viewport.getStagePosFromScreenPos(newX, newY)
 		})
+	}
+	/**
+	 * @param {number} previousX
+	 * @param {number} previousY
+	 */
+	onEnd(previousX, previousY) {
+		this.touch.whiteboard.eraseObjects([...this.erasingObjects]);
+	}
+	/**
+	 * @param {number} previousX
+	 * @param {number} previousY
+	 */
+	onCancel(previousX, previousY) {
+		for (var o of this.erasingObjects) {
+			o.verify();
+		}
 	}
 	toString() {
 		return `EraseTouchMode {}`
@@ -3054,53 +3098,40 @@ class DummyUndoStackItem extends UndoStackItem {
 	}
 	invert() { return new DummyUndoStackItem(this.whiteboard, this.n, !this.inverted) }
 }
-class USICreateObjects extends UndoStackItem {
+class USIModifyObjects extends UndoStackItem {
 	/**
 	 * @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard
-	 * @param {{ typeID: string, objectID: number, data: Object, blob: Blob | null }[]} objects
+	 * @param {{ typeID: string, objectID: number, data: Object, blob: Blob | null }[]} createdObjects
+	 * @param {{ objectID: number, previousData: Object, newData: Object }[]} editedObjects
+	 * @param {{ typeID: string, objectID: number, data: Object, blob: Blob | null }[]} deletedObjects
 	 */
-	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
+	constructor(whiteboard, createdObjects, editedObjects, deletedObjects) { super(whiteboard); this.createdObjects = createdObjects; this.editedObjects = editedObjects; this.deletedObjects = deletedObjects; }
 	do() {
-		for (var o of this.objects) {
+		for (let o of this.createdObjects) {
 			this.whiteboard.add(AbstractSceneObject.createFromDataAndID(o.objectID, this.whiteboard.layerMode.selectedLayer, o.typeID, o.data, () => Promise.resolve(o.blob)));
 			this.whiteboard.connection.createObject(o.objectID, this.whiteboard.layerMode.selectedLayer, o.typeID, o.data, o.blob);
 		}
-	}
-	invert() { return new USIEraseObjects(this.whiteboard, [...this.objects]) }
-}
-class USIEraseObjects extends UndoStackItem {
-	/**
-	 * @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard
-	 * @param {{ typeID: string, objectID: number, data: Object, blob: Blob | null }[]} objects
-	 */
-	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
-	do() {
-		for (var o of this.objects) {
+		for (let o of this.editedObjects) {
+			let realObj = this.whiteboard.findObject(o.objectID);
+			realObj.loadFromData(o.newData);
+			this.whiteboard.connection.editObject(o.objectID, o.newData);
+		}
+		for (let o of this.deletedObjects) {
 			this.whiteboard.findObject(o.objectID).unverify();
 			this.whiteboard.connection.removeObject(o.objectID);
 		}
+		if (this.whiteboard instanceof Whiteboard2D) this.whiteboard.updateSelection();
 	}
-	invert() { return new USICreateObjects(this.whiteboard, [...this.objects]) }
-}
-class USIEditObjects extends UndoStackItem {
-	/**
-	 * @param {AbstractWhiteboard<?, AbstractSceneObject>} whiteboard
-	 * @param {{ objectID: number, previousData: Object, data: Object }[]} objects
-	 */
-	constructor(whiteboard, objects) { super(whiteboard); this.objects = objects; }
-	do() {
-		for (var o of this.objects) {
-			var realObj = this.whiteboard.findObject(o.objectID);
-			realObj.loadFromData(o.data);
-			this.whiteboard.connection.editObject(o.objectID, o.data);
-			if (this.whiteboard instanceof Whiteboard2D) this.whiteboard.updateSelection();
-		}
-	}
-	invert() { return new USIEditObjects(this.whiteboard, this.objects.map((v) => ({
-		objectID: v.objectID,
-		previousData: v.data,
-		data: v.previousData
-	}))) }
+	invert() { return new USIModifyObjects(
+		this.whiteboard,
+		[...this.deletedObjects],
+		this.editedObjects.map((v) => ({
+			objectID: v.objectID,
+			previousData: v.newData,
+			newData: v.previousData
+		})),
+		[...this.createdObjects]
+	); }
 }
 
 
