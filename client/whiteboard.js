@@ -2037,12 +2037,13 @@ var drawingModes = [
 	{ icon: "M 2 8 L 8 2",
 		type: "shape", shapeID: "line", makeShape: (start, end) => {
 			return [start, end]
-		}, getAttachPoints: (obj) => {
-			return [
-				new AttachPoint(obj, "start", () => obj.start, (p) => p, (p) => obj.start = p),
-				new AttachPoint(obj, "end", () => obj.end, (p) => p, (p) => obj.end = p)
-			]
-		}
+		}, getAttachPoints: (obj) => [
+			new AttachPoint(obj, "start", () => obj.start, (p) => p, (p) => obj.start = p),
+			new AttachPoint(obj, "end", () => obj.end, (p) => p, (p) => obj.end = p)
+		]
+	},
+	{ icon: "M 5 2.5 A 1 1 0 0 0 5 7.5 A 1 1 0 0 0 5 2.5 Z M 5 3.5 A 1 1 0 0 0 5 6.5 A 1 1 0 0 0 5 3.5 Z M 5 4.5 A 0.5 0.5 0 0 0 5 5.5 A 0.5 0.5 0 0 0 5 4.5 Z",
+		type: "point"
 	},
 	{ icon: "M 1 2 L 1 8 L 9 8 L 9 2 Z",
 		type: "shape", shapeID: "rect", makeShape: (start, end) => {
@@ -2053,14 +2054,12 @@ var drawingModes = [
 				{ x: start.x, y: end.y },
 				{ x: start.x, y: start.y }
 			]
-		}, getAttachPoints: (obj) => {
-			return [
-				new AttachPoint(obj, "start", () => obj.start, (p) => p, (p) => obj.start = p),
-				new AttachPoint(obj, "end", () => obj.end, (p) => p, (p) => obj.end = p),
-				new AttachPoint(obj, "corner1", () => ({ x: obj.start.x, y: obj.end.y }), (pos) => pos, (pos) => (obj.start.x = pos.x, obj.end.y = pos.y)),
-				new AttachPoint(obj, "corner2", () => ({ x: obj.end.x, y: obj.start.y }), (pos) => pos, (pos) => (obj.end.x = pos.x, obj.start.y = pos.y))
-			]
-		}
+		}, getAttachPoints: (obj) => [
+			new AttachPoint(obj, "start", () => obj.start, (p) => p, (p) => obj.start = p),
+			new AttachPoint(obj, "end", () => obj.end, (p) => p, (p) => obj.end = p),
+			new AttachPoint(obj, "corner1", () => ({ x: obj.start.x, y: obj.end.y }), (pos) => pos, (pos) => (obj.start.x = pos.x, obj.end.y = pos.y)),
+			new AttachPoint(obj, "corner2", () => ({ x: obj.end.x, y: obj.start.y }), (pos) => pos, (pos) => (obj.end.x = pos.x, obj.start.y = pos.y))
+		]
 	},
 	{ icon: "M 5 1 A 1 1 0 0 0 5 9 A 1 1 0 0 0 5 1 Z",
 		type: "shape", shapeID: "circle", makeShape: (start, end) => {
@@ -2068,47 +2067,61 @@ var drawingModes = [
 			var ry = Math.abs(end.y - start.y)
 			var r = Math.sqrt((rx*rx) + (ry*ry))
 			// Generate points
-			var circlePoints = [];
-			var resolution = 60;
-			for (var i = 0; i <= resolution; i++) {
-				var theta = 2 * Math.PI * (i / resolution);
-				circlePoints.push({
-					x: start.x + (r * Math.cos(theta)),
-					y: start.y + (r * Math.sin(theta))
-				});
-			}
-			return circlePoints;
+			return getEllipsePoints(start, r, r, 60);
+		}, getAttachPoints: (obj) => [
+			new AttachPoint(obj, "center", () => obj.start, (p) => p, (p) => {
+				let r = dist(obj.start, obj.end)
+				obj.start = p
+				obj.end = { x: obj.start.x, y: obj.start.y + r }
+			}),
+			...[...Array(24).keys()].map((i) => new AttachPoint(obj, "circle"+i, () => {
+				var r = dist(obj.start, obj.end);
+				return getEllipsePoint(obj.start, r, r, i / 24);
+			}, (pos) => {
+				var r = dist(pos, obj.start);
+				return getEllipsePoint(obj.start, r, r, i / 24);
+			}, (pos) => {
+				var r = dist(pos, obj.start);
+				obj.end.x = obj.start.x;
+				obj.end.y = obj.start.y + r;
+			}, i % 3 == 0))
+		]
+	},
+	{ icon: "M 5 3 A 4 2 0 0 0 5 7 A 4 2 0 0 0 5 3 Z",
+		type: "shape", shapeID: "ellipse", makeShape: (start, end) => {
+			var rx = Math.abs(end.x - start.x)
+			var ry = Math.abs(end.y - start.y)
+			// Generate points
+			return getEllipsePoints(start, rx, ry, 60);
 		}, getAttachPoints: (obj) => {
 			return [
 				new AttachPoint(obj, "center", () => obj.start, (p) => p, (p) => {
-					let r = dist(obj.start, obj.end)
-					obj.start = p
-					obj.end = { x: obj.start.x, y: obj.start.y + r }
+					let dx = p.x - obj.start.x
+					let dy = p.y - obj.start.y
+					obj.start.x += dx
+					obj.start.y += dy
+					obj.end.x += dx
+					obj.end.y += dy
 				}),
+				new AttachPoint(obj, "end", () => obj.end, (p) => ({ x: obj.start.x + Math.abs(p.x - obj.start.x), y: obj.start.y + Math.abs(p.y - obj.start.y) }), (p) => obj.end = p),
 				...[...Array(24).keys()].map((i) => new AttachPoint(obj, "circle"+i, () => {
-					var r = dist(obj.start, obj.end)
-					var theta = 2 * Math.PI * (i / 24);
-					return {
-						x: obj.start.x + (r * Math.cos(theta)),
-						y: obj.start.y + (r * Math.sin(theta))
-					};
+					var rx = Math.abs(obj.end.x - obj.start.x)
+					var ry = Math.abs(obj.end.y - obj.start.y)
+					return getEllipsePoint(obj.start, rx, ry, i / 24);
 				}, (pos) => {
-					var r = dist(pos, obj.start)
-					var theta = 2 * Math.PI * (i / 24);
-					return {
-						x: obj.start.x + (r * Math.cos(theta)),
-						y: obj.start.y + (r * Math.sin(theta))
-					};
+					let r = getEllipsePoint({ x: 0, y: 0 }, 1, 1, i / 24);
+					if (Math.round(r.x*100000000) == 0) return { x: obj.start.x, y: pos.y };
+					if (Math.round(r.y*100000000) == 0) return { x: pos.x, y: obj.start.y };
+					return pos;
 				}, (pos) => {
-					var r = dist(pos, obj.start)
-					obj.end.x = obj.start.x;
-					obj.end.y = obj.start.y + r;
+					let dx = Math.abs(pos.x - obj.start.x);
+					let dy = Math.abs(pos.y - obj.start.y);
+					let r = getEllipsePoint({ x: 0, y: 0 }, 1, 1, i / 24);
+					if (Math.round(r.x*100000000) != 0) obj.end.x = obj.start.x + (dx / r.x);
+					if (Math.round(r.y*100000000) != 0) obj.end.y = obj.start.y + (dy / r.y);
 				}, i % 3 == 0))
 			]
 		}
-	},
-	{ icon: "M 5 2.5 A 1 1 0 0 0 5 7.5 A 1 1 0 0 0 5 2.5 Z M 5 3.5 A 1 1 0 0 0 5 6.5 A 1 1 0 0 0 5 3.5 Z M 5 4.5 A 0.5 0.5 0 0 0 5 5.5 A 0.5 0.5 0 0 0 5 4.5 Z",
-		type: "point"
 	}
 ]
 var selectedDrawingMode = 0;
@@ -2139,7 +2152,7 @@ var selectedDrawingMode = 0;
 		}
 	})
 })();
-var allColors = ["black", "red", "orange", "yellow", "#cc1", "green", "lime", "cyan", "blue", "purple", "#80f", "magenta", "gray", "brown"];
+var allColors = ["black", "red", "orange", "yellow", "#981", "green", "lime", "cyan", "blue", "purple", "#80f", "magenta", "pink", "gray", "#CCC", "brown"];
 var selectedColor = "black";
 (function makeColorButtonsInDrawingModeMenu() {
 	// Get container
@@ -2161,7 +2174,7 @@ var selectedColor = "black";
 			button.classList.add("menu-option-selected");
 		}).bind(null, color));
 		// Wrap lines
-		if (colorContainer.children.length == 7) colorContainer.appendChild(document.createElement("br"))
+		if (colorContainer.children.length == 8) colorContainer.appendChild(document.createElement("br"))
 	}
 })();
 (function makeColorButtonsInSelectionMenu() {
@@ -2187,7 +2200,9 @@ var selectedColor = "black";
 			});
 		}).bind(null, color));
 		// Wrap lines
-		if (colorContainer.children.length == 7) colorContainer.appendChild(document.createElement("br"))
+		if (colorContainer.children.length == 4) colorContainer.appendChild(document.createElement("br"))
+		if (colorContainer.children.length == 9) colorContainer.appendChild(document.createElement("br"))
+		if (colorContainer.children.length == 14) colorContainer.appendChild(document.createElement("br"))
 	}
 })();
 

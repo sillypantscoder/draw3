@@ -150,6 +150,41 @@ function aspect_scale(currentSize, maxSize, canIncreaseSize) {
 	}
 }
 
+/**
+ * @param {Point} center
+ * @param {number} rx
+ * @param {number} ry
+ * @param {number} resolution
+ * @returns {Point[]}
+ */
+function getEllipsePoints(center, rx, ry, resolution) {
+	// Generate points
+	var circlePoints = [];
+	for (var i = 0; i <= resolution; i++) {
+		var theta = 2 * Math.PI * (i / resolution);
+		circlePoints.push({
+			x: center.x + (rx * Math.cos(theta)),
+			y: center.y + (ry * Math.sin(theta))
+		});
+	}
+	return circlePoints;
+}
+/**
+ * @param {Point} center
+ * @param {number} rx
+ * @param {number} ry
+ * @param {number} fractionAroundCircle
+ * @returns {Point}
+ */
+function getEllipsePoint(center, rx, ry, fractionAroundCircle) {
+	// Generate points
+	var theta = 2 * Math.PI * fractionAroundCircle;
+	return {
+		x: center.x + (rx * Math.cos(theta)),
+		y: center.y + (ry * Math.sin(theta))
+	};
+}
+
 var mainCanvas = document.createElement("canvas")
 document.querySelector(".mainContainer")?.appendChild(mainCanvas)
 mainCanvas.id = "mainCanvas"
