@@ -246,3 +246,35 @@ class CacheMap {
 		return value;
 	}
 }
+
+
+// Special button animation
+[...document.querySelectorAll(".special-big-button")].forEach((e) => {
+	if (! (e instanceof HTMLElement)) throw new Error();
+	let startAnimation = (/** @type {number} */ x, /** @type {number} */ y) => {
+		// get animation pos
+		let rect = e.getBoundingClientRect();
+		let centerXRelative = x - rect.left;
+		let centerYRelative = y - rect.top;
+		let maxRadius = Math.sqrt((rect.width*rect.width) + (rect.height*rect.height));
+		// create element
+		let effectElement = document.createElement("span")
+		effectElement.setAttribute("style", `top: ${centerYRelative}px; left: ${centerXRelative}px; width: 0px; height: 0px;`);
+		effectElement.classList.add("effect")
+		e.appendChild(effectElement);
+		// animate
+		requestAnimationFrame(() => {
+			effectElement.setAttribute("style", `top: ${centerYRelative - maxRadius}px; left: ${centerXRelative - maxRadius}px; width: ${maxRadius*2}px; height: ${maxRadius*2}px;`);
+		})
+		// remove when done
+		Promise.all([
+			new Promise((resolve) => setTimeout(resolve, 250)),
+			new Promise((resolve) => (window.addEventListener("touchend", resolve, { once: true }), window.addEventListener("mouseup", resolve, { once: true })))
+		]).then(() => {
+			effectElement.classList.add("invisible")
+			setTimeout(() => effectElement.remove(), 500)
+		})
+	}
+	e.addEventListener("touchstart", (e) => startAnimation(e.changedTouches[0].clientX, e.changedTouches[0].clientY))
+	e.addEventListener("mousedown", (e) => startAnimation(e.clientX, e.clientY))
+});
