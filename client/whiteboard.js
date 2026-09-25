@@ -1153,8 +1153,7 @@ class Renderer2D {
 		mainCanvasCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height)
 		mainCanvasCtx.lineCap = "round"
 		mainCanvasCtx.lineJoin = "round"
-		for (var i = 0; i < this.whiteboard.objects.length; i++) {
-			var obj = this.whiteboard.objects[i];
+		for (var obj of [...this.whiteboard.objects].sort((a, b) => a.layer - b.layer)) {
 			var visibility = this.whiteboard.layerMode.selectedLayer == obj.layer ? 2 : this.whiteboard.layerMode.visibility;
 			if (this.whiteboard.selection != null && this.whiteboard.selection.objects.includes(obj) && visibility == 0) visibility = 1;
 			if (visibility > 0 && obj.colliderect(this.whiteboard.viewport, screenRect)) {
@@ -1929,7 +1928,8 @@ class Whiteboard2D extends AbstractWhiteboard {
 	 * @param {(SceneObject2D | { objectID: number, name: string })[]} exclude
 	 */
 	findAttachPoint(x, y, exclude) {
-		var maxDistance = 15 / this.viewport.zoom
+		let bestPoint = null
+		var bestDistance = 15 / this.viewport.zoom
 		for (var o of this.objects) {
 			if (exclude.includes(o)) continue;
 			for (var attachPoint of o.attachPoints) {
@@ -1937,10 +1937,13 @@ class Whiteboard2D extends AbstractWhiteboard {
 				if (exclude.some((v) => !(v instanceof SceneObject2D) && v.objectID == attachPoint.otherPoint?.objectID && v.name == attachPoint.otherPoint.name)) continue;
 				if (exclude.some((v) => (v instanceof SceneObject2D) && v.objectID == attachPoint.otherPoint?.objectID)) continue;
 				var distance = dist(attachPoint.getPos(), { x, y })
-				if (distance < maxDistance) return attachPoint
+				if (distance < bestDistance) {
+					distance = bestDistance
+					bestPoint = attachPoint
+				}
 			}
 		}
-		return null
+		return bestPoint
 	}
 	/**
 	 * @param {TrackedTouch<Whiteboard2D>} touch

@@ -241,7 +241,7 @@ class Draw3Server(HTTPServer):
 			# Save whiteboard
 			whiteboard.saveObjectList()
 			return {
-				"status": 200,
+				"status": 204,
 				"headers": {},
 				"content": b""
 			}
